@@ -244,8 +244,8 @@ const RTC_CONFIG = {
     { urls: 'stun:stun1.l.google.com:19302' },
   ]
 };
-const NET_TICK_RATE = 3;
-const FOOD_SYNC_INTERVAL = 5;
+const NET_TICK_RATE = 4;
+const FOOD_SYNC_INTERVAL = 10;
 let peers = [];
 let nextPlayerId = 1;
 let netTick = 0;
@@ -470,8 +470,9 @@ function checkSnakeCollisions() {
 // ============================================================
 function serializeSnake(s) {
   const segs = [];
-  for (const seg of s.segments) {
-    segs.push(Math.round(seg.x), Math.round(seg.y));
+  // Send every 2nd segment to reduce payload; client interpolates the gaps
+  for (let i = 0; i < s.segments.length; i += 2) {
+    segs.push(Math.round(s.segments[i].x), Math.round(s.segments[i].y));
   }
   return [
     s.name,                              // 0

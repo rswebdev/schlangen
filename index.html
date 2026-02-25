@@ -978,11 +978,23 @@ function applyNetState(msg) {
 
   const allSnakes = [];
   for (const sd of msg.sn) {
-    const segs = [];
+    // Unpack sparse segments (server sends every 2nd)
+    const sparse = [];
     const segData = sd[9];
     for (let i = 0; i < segData.length; i += 2) {
-      segs.push({ x: segData[i], y: segData[i + 1] });
+      sparse.push({ x: segData[i], y: segData[i + 1] });
     }
+    // Expand with linear interpolation to restore smooth body
+    const segs = [];
+    for (let i = 0; i < sparse.length - 1; i++) {
+      segs.push(sparse[i]);
+      segs.push({
+        x: (sparse[i].x + sparse[i+1].x) * 0.5,
+        y: (sparse[i].y + sparse[i+1].y) * 0.5,
+      });
+    }
+    if (sparse.length > 0) segs.push(sparse[sparse.length - 1]);
+
     allSnakes.push({
       name: sd[0],
       color: SNAKE_COLORS[sd[1]] || SNAKE_COLORS[0],
@@ -1045,9 +1057,42 @@ function gameLoop() {
   if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
   frameCount++;
 
-  // CLIENT MODE: send input, render received state, no local simulation
+  // CLIENT MODE: predict movement between network updates for smooth 60fps
   if (netMode === 'client') {
     sendClientInput();
+
+    // Forward-predict player snake with local input (responsive steering)
+    if (player && player.alive && player.segments.length >= 2) {
+      let localAngle;
+      if (hasJoystickInput) {
+        localAngle = joystickAngle;
+      } else {
+        const head = player.segments[0];
+        localAngle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
+      }
+      const diff = angleDiff(player.angle, localAngle);
+      player.angle += clamp(diff, -TURN_SPEED, TURN_SPEED) * 1.8;
+
+      const speed = (boosting && player.boost > 0 && player.segments.length > 12) ? BOOST_SPEED : BASE_SPEED;
+      const head = player.segments[0];
+      player.segments.unshift({
+        x: head.x + Math.cos(player.angle) * speed,
+        y: head.y + Math.sin(player.angle) * speed,
+      });
+      while (player.segments.length > player.targetLength) player.segments.pop();
+    }
+
+    // Forward-predict other snakes with last known angle/speed
+    for (const ai of aiSnakes) {
+      if (!ai.alive || ai.segments.length < 2) continue;
+      const head = ai.segments[0];
+      ai.segments.unshift({
+        x: head.x + Math.cos(ai.angle) * ai.speed,
+        y: head.y + Math.sin(ai.angle) * ai.speed,
+      });
+      while (ai.segments.length > ai.targetLength) ai.segments.pop();
+    }
+
     updateParticles();
     if (player && player.alive) updateCamera();
 
