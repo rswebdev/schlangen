@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,7 +32,7 @@ const (
 	BoundaryMargin = 50.0
 	TickRate       = 60
 	NetTickRate    = 4
-	FoodSyncRate   = 10
+	FoodSyncRate   = 3
 	ViewDist       = 2500.0
 	NumColors      = 12
 	NumFoodColors  = 12
@@ -44,6 +45,12 @@ var aiNames = [...]string{
 	"Taipan", "Coral", "Sidewinder", "Copperhead", "King",
 	"Noodle", "Slinky", "Wiggles", "Scales", "Slithers",
 	"Fangs", "Hissy", "Sssnake", "Danger", "Nope Rope",
+}
+
+var aiIDCounter int64
+
+func nextAIID() int {
+	return -int(atomic.AddInt64(&aiIDCounter, 1))
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +219,7 @@ func NewGame() *Game {
 		}
 		used[name] = true
 		pos := randWorldPos()
-		s := g.createSnake(name, pos.X, pos.Y, i%NumColors, true, -1)
+		s := g.createSnake(name, pos.X, pos.Y, i%NumColors, true, nextAIID())
 		extra := rand.Intn(40)
 		s.TargetLen += extra
 		s.Score += extra
@@ -333,7 +340,7 @@ func (g *Game) killSnake(s *Snake) {
 
 func (g *Game) respawnAI(s *Snake) {
 	pos := randWorldPos()
-	*s = *g.createSnake(s.Name, pos.X, pos.Y, rand.Intn(NumColors), true, -1)
+	*s = *g.createSnake(s.Name, pos.X, pos.Y, rand.Intn(NumColors), true, nextAIID())
 	extra := rand.Intn(40)
 	s.TargetLen += extra
 	s.Score += extra
@@ -599,7 +606,7 @@ func (g *Game) handleLeave(id int) {
 		}
 		pos := randWorldPos()
 		name := aiNames[rand.Intn(len(aiNames))]
-		ai := g.createSnake(name, pos.X, pos.Y, rand.Intn(NumColors), true, -1)
+		ai := g.createSnake(name, pos.X, pos.Y, rand.Intn(NumColors), true, nextAIID())
 		extra := rand.Intn(40)
 		ai.TargetLen += extra
 		ai.Score += extra
@@ -627,6 +634,12 @@ func (g *Game) handleRespawn(id int) {
 	snake := g.createSnake(p.name, pos.X, pos.Y, rand.Intn(NumColors), false, p.id)
 	p.snake = snake
 	g.snakes = append(g.snakes, snake)
+	// Invalidate metadata cache for this player's snake in all other players
+	for _, other := range g.players {
+		if other.knownSnakes != nil {
+			delete(other.knownSnakes, p.id)
+		}
+	}
 	log.Printf("[RESPAWN] Player %d '%s' respawned", id, p.name)
 }
 

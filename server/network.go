@@ -18,12 +18,13 @@ import (
 // ---------------------------------------------------------------------------
 
 type Player struct {
-	id     int
-	name   string
-	conn   *websocket.Conn
-	snake  *Snake
-	sendCh chan []byte
-	done   chan struct{}
+	id          int
+	name        string
+	conn        *websocket.Conn
+	snake       *Snake
+	sendCh      chan []byte
+	done        chan struct{}
+	knownSnakes map[int]bool // snake IDs whose metadata has been sent
 }
 
 var playerIDCounter int64
@@ -51,11 +52,12 @@ func HandleWS(game *Game, w http.ResponseWriter, r *http.Request) {
 
 	id := nextPlayerID()
 	p := &Player{
-		id:     id,
-		name:   fmt.Sprintf("Player %d", id),
-		conn:   conn,
-		sendCh: make(chan []byte, 8),
-		done:   make(chan struct{}),
+		id:          id,
+		name:        fmt.Sprintf("Player %d", id),
+		conn:        conn,
+		sendCh:      make(chan []byte, 8),
+		done:        make(chan struct{}),
+		knownSnakes: make(map[int]bool),
 	}
 
 	// Send welcome (JSON, includes world size)
@@ -159,10 +161,11 @@ func (p *Player) writePump() {
 //
 // Header: type(1)=1, flags(1), snakeCount(uint16 BE)
 // Per snake:
-//   nameLen(uint8), name[nameLen],
-//   colorIdx(uint8), flags(uint8: bit0=alive, bit1=boosting, bit2=isPlayer),
+//   playerId(int16 BE),
+//   flags(uint8: bit0=alive, bit1=boosting, bit2=isPlayer, bit3=hasMeta),
+//   [if hasMeta: nameLen(uint8), name[nameLen], colorIdx(uint8)],
 //   score(uint16 BE), angle*10000(int16 BE), boost(uint8),
-//   targetLen(uint16 BE), playerId(int16 BE), invTimer(uint8),
+//   targetLen(uint16 BE), invTimer(uint8),
 //   segCount(uint16 BE), segments[segCount * 4](uint16 x + uint16 y, BE)
 // If hasFood:
 //   foodCount(uint16 BE)
@@ -201,6 +204,20 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 		}
 	}
 
+	// Build hasMeta flags: true for snakes whose metadata hasn't been sent yet
+	if p.knownSnakes == nil {
+		p.knownSnakes = make(map[int]bool)
+	}
+	hasMeta := make([]bool, len(visible))
+	newKnown := make(map[int]bool, len(visible))
+	for i, s := range visible {
+		if !p.knownSnakes[s.PlayerID] {
+			hasMeta[i] = true
+		}
+		newKnown[s.PlayerID] = true
+	}
+	p.knownSnakes = newKnown
+
 	// Determine visible food
 	var visibleFood []*Food
 	if includeFood {
@@ -211,15 +228,20 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 		}
 	}
 
-	return serializeState(visible, visibleFood, includeFood)
+	return serializeState(visible, hasMeta, visibleFood, includeFood)
 }
 
-func serializeState(snakes []*Snake, foods []*Food, includeFood bool) []byte {
+func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood bool) []byte {
 	// Calculate buffer size
 	size := 4 // header
-	for _, s := range snakes {
+	for i, s := range snakes {
 		segCount := (len(s.Segments) + 1) / 2 // ceil(n/2)
-		size += 1 + len(s.Name) + 1 + 1 + 2 + 2 + 1 + 2 + 2 + 1 + 2 + segCount*4
+		// playerId(2) + flags(1) + score(2) + angle(2) + boost(1) + targetLen(2) + invTimer(1) + segCount(2) + segs
+		perSnake := 2 + 1 + 2 + 2 + 1 + 2 + 1 + 2 + segCount*4
+		if hasMeta == nil || hasMeta[i] {
+			perSnake += 1 + len(s.Name) + 1 // nameLen + name + colorIdx
+		}
+		size += perSnake
 	}
 	if includeFood {
 		size += 2 + len(foods)*7
@@ -239,16 +261,12 @@ func serializeState(snakes []*Snake, foods []*Food, includeFood bool) []byte {
 	o += 2
 
 	// Snakes
-	for _, s := range snakes {
-		nameBytes := []byte(s.Name)
-		buf[o] = byte(len(nameBytes))
-		o++
-		copy(buf[o:], nameBytes)
-		o += len(nameBytes)
+	for i, s := range snakes {
+		// PlayerId first
+		binary.BigEndian.PutUint16(buf[o:], uint16(int16(s.PlayerID)))
+		o += 2
 
-		buf[o] = byte(s.ColorIdx)
-		o++
-
+		// Flags with hasMeta bit
 		var flags byte
 		if s.Alive {
 			flags |= 1
@@ -259,8 +277,24 @@ func serializeState(snakes []*Snake, foods []*Food, includeFood bool) []byte {
 		if !s.IsAI {
 			flags |= 4
 		}
+		meta := hasMeta == nil || hasMeta[i]
+		if meta {
+			flags |= 8
+		}
 		buf[o] = flags
 		o++
+
+		// Conditional metadata
+		if meta {
+			nameBytes := []byte(s.Name)
+			buf[o] = byte(len(nameBytes))
+			o++
+			copy(buf[o:], nameBytes)
+			o += len(nameBytes)
+
+			buf[o] = byte(s.ColorIdx)
+			o++
+		}
 
 		score := s.Score
 		if score > 65535 {
@@ -297,9 +331,6 @@ func serializeState(snakes []*Snake, foods []*Food, includeFood bool) []byte {
 		binary.BigEndian.PutUint16(buf[o:], uint16(tl))
 		o += 2
 
-		binary.BigEndian.PutUint16(buf[o:], uint16(int16(s.PlayerID)))
-		o += 2
-
 		inv := s.InvTimer
 		if inv > 255 {
 			inv = 255
@@ -311,9 +342,9 @@ func serializeState(snakes []*Snake, foods []*Food, includeFood bool) []byte {
 		segCount := (len(s.Segments) + 1) / 2
 		binary.BigEndian.PutUint16(buf[o:], uint16(segCount))
 		o += 2
-		for i := 0; i < len(s.Segments); i += 2 {
-			x := int(math.Round(s.Segments[i].X))
-			y := int(math.Round(s.Segments[i].Y))
+		for j := 0; j < len(s.Segments); j += 2 {
+			x := int(math.Round(s.Segments[j].X))
+			y := int(math.Round(s.Segments[j].Y))
 			if x < 0 {
 				x = 0
 			}

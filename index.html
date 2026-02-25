@@ -375,6 +375,7 @@ let frameCount = 0;
 let netMode = 'solo';  // 'solo' or 'client'
 let myPlayerId = -1;
 let ws = null;  // WebSocket connection
+const snakeMeta = new Map(); // playerId -> { name, colorIdx } cached metadata
 
 // ============================================================
 // TOUCH STATE
@@ -939,6 +940,7 @@ function connectToServer() {
         gameRunning = false;
         netMode = 'solo';
         ws = null;
+        snakeMeta.clear();
         document.getElementById('start-screen').style.display = 'flex';
         document.getElementById('online-panel').style.display = 'none';
         document.getElementById('start-buttons').style.display = 'flex';
@@ -983,20 +985,34 @@ function deserializeBinaryState(buffer) {
   const allSnakes = [];
 
   for (let si = 0; si < snakeCount; si++) {
-    const nameLen = view.getUint8(o++);
-    const name = textDecoder.decode(new Uint8Array(buffer, o, nameLen));
-    o += nameLen;
-
-    const colorIdx = view.getUint8(o++);
+    const playerId = view.getInt16(o); o += 2;
     const flags = view.getUint8(o++);
     const alive = (flags & 1) !== 0;
     const isBoosting = (flags & 2) !== 0;
+    const hasMetaFlag = (flags & 8) !== 0;
+
+    let name, colorIdx;
+    if (hasMetaFlag) {
+      const nameLen = view.getUint8(o++);
+      name = textDecoder.decode(new Uint8Array(buffer, o, nameLen));
+      o += nameLen;
+      colorIdx = view.getUint8(o++);
+      snakeMeta.set(playerId, { name, colorIdx });
+    } else {
+      const cached = snakeMeta.get(playerId);
+      if (cached) {
+        name = cached.name;
+        colorIdx = cached.colorIdx;
+      } else {
+        name = 'Snake';
+        colorIdx = 0;
+      }
+    }
 
     const score = view.getUint16(o); o += 2;
     const angle = view.getInt16(o) / 10000; o += 2;
     const boost = view.getUint8(o++);
     const targetLength = view.getUint16(o); o += 2;
-    const playerId = view.getInt16(o); o += 2;
     const invincibleTimer = view.getUint8(o++);
     const segCount = view.getUint16(o); o += 2;
 
@@ -1078,7 +1094,7 @@ function gameLoop() {
 
   // CLIENT MODE: predict movement between network updates for smooth 60fps
   if (netMode === 'client') {
-    sendClientInput();
+    if (frameCount % 4 === 0) sendClientInput();
 
     // Forward-predict player snake with local input (responsive steering)
     if (player && player.alive && player.segments.length >= 2) {
