@@ -919,10 +919,24 @@ async function connectToServer() {
 
     pc.ondatachannel = (e) => {
       hostChannel = e.channel;
+      hostChannel.binaryType = 'arraybuffer';
       hostChannel.onopen = () => {
         document.getElementById('join-status').textContent = 'Connected! Waiting for the game...';
       };
-      hostChannel.onmessage = (ev) => onServerMessage(ev.data);
+      hostChannel.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.t === 'welcome') {
+              myPlayerId = msg.pid;
+              playerName = document.getElementById('player-name').value.trim() || 'Player';
+              hostChannel.send(JSON.stringify({ t: 'join', name: playerName }));
+            }
+          } catch (err) {}
+        } else {
+          deserializeBinaryState(ev.data);
+        }
+      };
       hostChannel.onclose = () => {
         gameRunning = false;
         alert('Disconnected from server.');
@@ -950,41 +964,53 @@ async function connectToServer() {
   }
 }
 
-function onServerMessage(data) {
-  try {
-    const msg = JSON.parse(data);
-    switch (msg.t) {
-      case 'welcome':
-        myPlayerId = msg.pid;
-        playerName = document.getElementById('player-name').value.trim() || 'Player';
-        hostChannel.send(JSON.stringify({ t: 'join', name: playerName }));
-        break;
-      case 's':
-        if (!gameRunning) {
-          netMode = 'client';
-          document.getElementById('start-screen').style.display = 'none';
-          hideDeathScreen();
-          gameRunning = true;
-          particles = [];
-        }
-        applyNetState(msg);
-        break;
-    }
-  } catch (e) {}
-}
+const textDecoder = new TextDecoder();
 
-function applyNetState(msg) {
+function deserializeBinaryState(buffer) {
+  const view = new DataView(buffer);
+  let o = 0;
+
+  const type = view.getUint8(o++);
+  if (type !== 1) return;
+  const hasFood = (view.getUint8(o++) & 1) !== 0;
+  const snakeCount = view.getUint16(o); o += 2;
+
+  if (!gameRunning) {
+    netMode = 'client';
+    document.getElementById('start-screen').style.display = 'none';
+    hideDeathScreen();
+    gameRunning = true;
+    particles = [];
+  }
+
   const wasAlive = player && player.alive;
-
   const allSnakes = [];
-  for (const sd of msg.sn) {
-    // Unpack sparse segments (server sends every 2nd)
+
+  for (let si = 0; si < snakeCount; si++) {
+    const nameLen = view.getUint8(o++);
+    const name = textDecoder.decode(new Uint8Array(buffer, o, nameLen));
+    o += nameLen;
+
+    const colorIdx = view.getUint8(o++);
+    const flags = view.getUint8(o++);
+    const alive = (flags & 1) !== 0;
+    const isBoosting = (flags & 2) !== 0;
+
+    const score = view.getUint16(o); o += 2;
+    const angle = view.getInt16(o) / 10000; o += 2;
+    const boost = view.getUint8(o++);
+    const targetLength = view.getUint16(o); o += 2;
+    const playerId = view.getInt8(o++);
+    const invincibleTimer = view.getUint8(o++);
+    const segCount = view.getUint16(o); o += 2;
+
     const sparse = [];
-    const segData = sd[9];
-    for (let i = 0; i < segData.length; i += 2) {
-      sparse.push({ x: segData[i], y: segData[i + 1] });
+    for (let i = 0; i < segCount; i++) {
+      sparse.push({ x: view.getUint16(o), y: view.getUint16(o + 2) });
+      o += 4;
     }
-    // Expand with linear interpolation to restore smooth body
+
+    // Interpolate to restore smooth body
     const segs = [];
     for (let i = 0; i < sparse.length - 1; i++) {
       segs.push(sparse[i]);
@@ -996,20 +1022,11 @@ function applyNetState(msg) {
     if (sparse.length > 0) segs.push(sparse[sparse.length - 1]);
 
     allSnakes.push({
-      name: sd[0],
-      color: SNAKE_COLORS[sd[1]] || SNAKE_COLORS[0],
-      alive: sd[2] === 1,
-      score: sd[3],
-      angle: sd[4],
-      targetAngle: sd[4],
-      isBoosting: sd[5] === 1,
-      boost: sd[6],
-      targetLength: sd[7],
-      playerId: sd[8],
-      segments: segs,
-      isPlayer: sd[8] === myPlayerId,
-      invincibleTimer: sd[10] || 0,
-      speed: sd[5] === 1 ? BOOST_SPEED : BASE_SPEED,
+      name, color: SNAKE_COLORS[colorIdx] || SNAKE_COLORS[0],
+      alive, score, angle, targetAngle: angle,
+      isBoosting, boost, targetLength, playerId,
+      segments: segs, isPlayer: playerId === myPlayerId,
+      invincibleTimer, speed: isBoosting ? BOOST_SPEED : BASE_SPEED,
     });
   }
 
@@ -1018,13 +1035,20 @@ function applyNetState(msg) {
 
   if (wasAlive && player && !player.alive) showDeathScreen();
 
-  if (msg.f) {
-    foods = msg.f.map(fd => ({
-      x: fd[0], y: fd[1],
-      color: FOOD_COLORS[fd[2]] || FOOD_COLORS[0],
-      radius: fd[3], value: fd[4],
-      pulse: rand(0, Math.PI * 2),
-    }));
+  if (hasFood) {
+    const foodCount = view.getUint16(o); o += 2;
+    foods = [];
+    for (let i = 0; i < foodCount; i++) {
+      foods.push({
+        x: view.getUint16(o),
+        y: view.getUint16(o + 2),
+        color: FOOD_COLORS[view.getUint8(o + 4)] || FOOD_COLORS[0],
+        radius: view.getUint8(o + 5) / 10,
+        value: view.getUint8(o + 6) / 10,
+        pulse: rand(0, Math.PI * 2),
+      });
+      o += 7;
+    }
   }
 }
 
@@ -1041,13 +1065,12 @@ function sendClientInput() {
     }
   }
 
-  try {
-    hostChannel.send(JSON.stringify({
-      t: 'input',
-      a: +(angle.toFixed(3)),
-      b: boosting,
-    }));
-  } catch (e) {}
+  const buf = new ArrayBuffer(4);
+  const view = new DataView(buf);
+  view.setUint8(0, 2);
+  view.setInt16(1, Math.round(angle * 10000));
+  view.setUint8(3, boosting ? 1 : 0);
+  try { hostChannel.send(buf); } catch (e) {}
 }
 
 // ============================================================

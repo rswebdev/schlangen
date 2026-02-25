@@ -466,50 +466,85 @@ function checkSnakeCollisions() {
 }
 
 // ============================================================
-// STATE SERIALIZATION
+// BINARY SERIALIZATION
 // ============================================================
-function serializeSnake(s) {
-  const segs = [];
-  // Send every 2nd segment to reduce payload; client interpolates the gaps
-  for (let i = 0; i < s.segments.length; i += 2) {
-    segs.push(Math.round(s.segments[i].x), Math.round(s.segments[i].y));
-  }
-  return [
-    s.name,                              // 0
-    SNAKE_COLORS.indexOf(s.color),       // 1
-    s.alive ? 1 : 0,                    // 2
-    s.score,                             // 3
-    +(s.angle.toFixed(2)),               // 4
-    s.isBoosting ? 1 : 0,               // 5
-    Math.round(s.boost),                 // 6
-    s.targetLength,                      // 7
-    s.playerId,                          // 8
-    segs,                                // 9
-    Math.round(s.invincibleTimer),       // 10
-  ];
-}
+const textEncoder = new TextEncoder();
 
-function serializeFoods() {
-  return foods.map(f => [
-    Math.round(f.x),
-    Math.round(f.y),
-    FOOD_COLORS.indexOf(f.color),
-    +(f.radius.toFixed(1)),
-    +(f.value.toFixed(1)),
-  ]);
+function serializeStateBinary(includeFood) {
+  let size = 4; // header: type(1) + flags(1) + snakeCount(2)
+  const nameCache = [];
+  for (const s of snakes) {
+    const nb = textEncoder.encode(s.name);
+    nameCache.push(nb);
+    const segCount = Math.ceil(s.segments.length / 2);
+    size += 1 + nb.length + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 2 + segCount * 4;
+  }
+  if (includeFood) {
+    size += 2 + foods.length * 7;
+  }
+
+  const buf = new ArrayBuffer(size);
+  const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+  let o = 0;
+
+  view.setUint8(o++, 1); // type = state
+  view.setUint8(o++, includeFood ? 1 : 0);
+  view.setUint16(o, snakes.length); o += 2;
+
+  for (let si = 0; si < snakes.length; si++) {
+    const s = snakes[si];
+    const nb = nameCache[si];
+    view.setUint8(o++, nb.length);
+    bytes.set(nb, o); o += nb.length;
+
+    view.setUint8(o++, SNAKE_COLORS.indexOf(s.color));
+    let flags = 0;
+    if (s.alive) flags |= 1;
+    if (s.isBoosting) flags |= 2;
+    if (s.isPlayer) flags |= 4;
+    view.setUint8(o++, flags);
+
+    view.setUint16(o, Math.min(s.score, 65535)); o += 2;
+    let a = s.angle;
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    view.setInt16(o, Math.round(a * 10000)); o += 2;
+    view.setUint8(o++, Math.round(clamp(s.boost, 0, 255)));
+    view.setUint16(o, Math.min(s.targetLength, 65535)); o += 2;
+    view.setInt8(o++, s.playerId);
+    view.setUint8(o++, Math.round(clamp(s.invincibleTimer, 0, 255)));
+
+    const segCount = Math.ceil(s.segments.length / 2);
+    view.setUint16(o, segCount); o += 2;
+    for (let i = 0; i < s.segments.length; i += 2) {
+      view.setUint16(o, Math.round(clamp(s.segments[i].x, 0, 65535))); o += 2;
+      view.setUint16(o, Math.round(clamp(s.segments[i].y, 0, 65535))); o += 2;
+    }
+  }
+
+  if (includeFood) {
+    view.setUint16(o, foods.length); o += 2;
+    for (const f of foods) {
+      view.setUint16(o, Math.round(clamp(f.x, 0, 65535))); o += 2;
+      view.setUint16(o, Math.round(clamp(f.y, 0, 65535))); o += 2;
+      view.setUint8(o++, FOOD_COLORS.indexOf(f.color));
+      view.setUint8(o++, Math.round(clamp(f.radius * 10, 0, 255)));
+      view.setUint8(o++, Math.round(clamp(f.value * 10, 0, 255)));
+    }
+  }
+
+  return buf;
 }
 
 function broadcastState(includeFood) {
   const connected = peers.filter(p => p.connected);
   if (connected.length === 0) return;
 
-  const msg = { t: 's', sn: snakes.map(serializeSnake) };
-  if (includeFood) msg.f = serializeFoods();
-
-  const data = JSON.stringify(msg);
+  const buf = serializeStateBinary(includeFood);
   for (const peer of connected) {
     if (peer.dc && peer.dc.readyState === 'open') {
-      try { peer.dc.send(data); } catch (e) {}
+      try { peer.dc.send(buf); } catch (e) {}
     }
   }
 }
@@ -525,6 +560,7 @@ async function generateInvite() {
 
   const pc = new RTCPeerConnection(RTC_CONFIG);
   const dc = pc.createDataChannel('game', { ordered: true });
+  dc.binaryType = 'arraybuffer';
 
   const playerId = nextPlayerId++;
   const peer = {
@@ -543,7 +579,17 @@ async function generateInvite() {
     updateDashboard();
   };
 
-  dc.onmessage = (e) => handlePeerMessage(peer, e.data);
+  dc.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      handlePeerMessage(peer, e.data);
+    } else {
+      const view = new DataView(e.data);
+      if (view.getUint8(0) === 2) {
+        peer.inputAngle = view.getInt16(1) / 10000;
+        peer.inputBoosting = (view.getUint8(3) & 1) !== 0;
+      }
+    }
+  };
   dc.onclose = () => handlePeerDisconnect(peer);
 
   pc.onconnectionstatechange = () => {
@@ -632,19 +678,9 @@ function handlePeerMessage(peer, data) {
         peer.playerName = msg.name || peer.playerName;
         spawnPlayerSnake(peer);
         addLog(peer.playerName + ' joined the game');
-        // Send full state immediately
-        peer.dc.send(JSON.stringify({
-          t: 's',
-          sn: snakes.map(serializeSnake),
-          f: serializeFoods(),
-        }));
+        peer.dc.send(serializeStateBinary(true));
         updateDashboard();
         resetInvitePanel();
-        break;
-
-      case 'input':
-        peer.inputAngle = msg.a || 0;
-        peer.inputBoosting = !!msg.b;
         break;
 
       case 'respawn':
