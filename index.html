@@ -376,6 +376,7 @@ let netMode = 'solo';  // 'solo' or 'client'
 let myPlayerId = -1;
 let ws = null;  // WebSocket connection
 const snakeMeta = new Map(); // playerId -> { name, colorIdx } cached metadata
+let playerInterpBuf = []; // server snapshot buffer for entity interpolation
 
 // ============================================================
 // TOUCH STATE
@@ -941,6 +942,7 @@ function connectToServer() {
         netMode = 'solo';
         ws = null;
         snakeMeta.clear();
+        playerInterpBuf = [];
         document.getElementById('start-screen').style.display = 'flex';
         document.getElementById('online-panel').style.display = 'none';
         document.getElementById('start-buttons').style.display = 'flex';
@@ -1046,24 +1048,30 @@ function deserializeBinaryState(buffer) {
   const serverPlayer = allSnakes.find(s => s.playerId === myPlayerId) || null;
   aiSnakes = allSnakes.filter(s => s.playerId !== myPlayerId);
 
-  // Server-authoritative position with camera absorption.
-  // Accept server segments fully (prevents drift), but absorb the visual
-  // discontinuity into the camera offset. The camera's existing lerp
-  // smoothing (0.1/frame) decays this over many frames, making it invisible.
-  if (serverPlayer && prevPlayer && prevPlayer.alive && serverPlayer.alive) {
-    if (prevPlayer.segments.length > 0 && serverPlayer.segments.length > 0) {
-      const jumpX = prevPlayer.segments[0].x - serverPlayer.segments[0].x;
-      const jumpY = prevPlayer.segments[0].y - serverPlayer.segments[0].y;
-      // Clamp to avoid huge offset on reconnect/respawn
-      camera.x += clamp(jumpX, -100, 100);
-      camera.y += clamp(jumpY, -100, 100);
+  // Entity interpolation: buffer server snapshots, interpolate at 60fps.
+  // No prediction, no correction artifacts. Adds ~80ms visual latency.
+  if (serverPlayer) {
+    playerInterpBuf.push({ time: performance.now(), data: serverPlayer });
+    while (playerInterpBuf.length > 6) playerInterpBuf.shift();
+
+    if (player && player.alive && serverPlayer.alive) {
+      // Sync non-position authoritative data immediately (for UI)
+      player.score = serverPlayer.score;
+      player.boost = serverPlayer.boost;
+      player.targetLength = serverPlayer.targetLength;
+      player.invincibleTimer = serverPlayer.invincibleTimer;
+      player.isBoosting = serverPlayer.isBoosting;
+      player.speed = serverPlayer.speed;
+      player.name = serverPlayer.name;
+      player.color = serverPlayer.color;
+    } else {
+      // First connect, spawn, or death: use server state directly
+      player = serverPlayer;
+      if (!serverPlayer.alive) playerInterpBuf = [];
     }
-    // Accept server state, but keep client angle for responsive local steering
-    const clientAngle = prevPlayer.angle;
-    player = serverPlayer;
-    player.angle = clientAngle;
   } else {
-    player = serverPlayer;
+    player = null;
+    playerInterpBuf = [];
   }
 
   if (wasAlive && player && !player.alive) showDeathScreen();
@@ -1113,29 +1121,56 @@ function gameLoop() {
   if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
   frameCount++;
 
-  // CLIENT MODE: predict movement between network updates for smooth 60fps
+  // CLIENT MODE: interpolate between server snapshots for smooth 60fps
   if (netMode === 'client') {
     sendClientInput();
 
-    // Forward-predict player snake with local input (responsive steering)
-    if (player && player.alive && player.segments.length >= 2) {
-      let localAngle;
-      if (hasJoystickInput) {
-        localAngle = joystickAngle;
-      } else {
-        const head = player.segments[0];
-        localAngle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
-      }
-      const diff = angleDiff(player.angle, localAngle);
-      player.angle += clamp(diff, -TURN_SPEED, TURN_SPEED) * 1.8;
+    // Entity interpolation for player snake
+    if (player && player.alive && playerInterpBuf.length >= 2) {
+      const now = performance.now();
+      const buf = playerInterpBuf;
+      const renderDelay = 80; // ms - slightly more than one server tick (66ms)
+      const renderTime = now - renderDelay;
 
-      const speed = (boosting && player.boost > 0 && player.segments.length > 12) ? BOOST_SPEED : BASE_SPEED;
-      const head = player.segments[0];
-      player.segments.unshift({
-        x: head.x + Math.cos(player.angle) * speed,
-        y: head.y + Math.sin(player.angle) * speed,
-      });
-      while (player.segments.length > player.targetLength) player.segments.pop();
+      // Find the two snapshots bracketing renderTime
+      let s0 = null, s1 = null;
+      for (let i = buf.length - 1; i >= 1; i--) {
+        if (buf[i-1].time <= renderTime && buf[i].time >= renderTime) {
+          s0 = buf[i-1];
+          s1 = buf[i];
+          break;
+        }
+      }
+
+      // Fallback: use last two if no bracket found (early connect or hiccup)
+      if (!s0 || !s1) {
+        s0 = buf[buf.length - 2];
+        s1 = buf[buf.length - 1];
+      }
+
+      const dt = s1.time - s0.time;
+      if (dt > 0) {
+        let t = (renderTime - s0.time) / dt;
+        t = clamp(t, 0, 1.5); // allow slight extrapolation on hiccup
+
+        const prev = s0.data.segments;
+        const curr = s1.data.segments;
+        const count = Math.min(prev.length, curr.length);
+        const segs = [];
+        for (let i = 0; i < count; i++) {
+          segs.push({
+            x: prev[i].x + (curr[i].x - prev[i].x) * t,
+            y: prev[i].y + (curr[i].y - prev[i].y) * t,
+          });
+        }
+        // Append extra segments from whichever snapshot is longer
+        const longer = curr.length > prev.length ? curr : prev;
+        for (let i = count; i < longer.length; i++) {
+          segs.push({ x: longer[i].x, y: longer[i].y });
+        }
+        player.segments = segs;
+        player.angle = s0.data.angle + angleDiff(s0.data.angle, s1.data.angle) * clamp(t, 0, 1);
+      }
     }
 
     // Forward-predict other snakes with last known angle/speed
