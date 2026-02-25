@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Snake.io</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0a0a2e;
+    overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    overscroll-behavior: none;
+  }
+  body.desktop-playing { cursor: none; }
+  canvas#game-canvas { display: block; width: 100%; height: 100%; }
+
+  /* ---- Score ---- */
+  #score {
+    position: fixed; top: 15px; left: 50%;
+    transform: translateX(-50%);
+    color: #fff; font-size: 22px; font-weight: bold;
+    text-shadow: 0 0 10px rgba(0,0,0,0.8);
+    z-index: 11; pointer-events: none;
+  }
+  #length-display {
+    position: fixed; top: 44px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.6); font-size: 13px;
+    text-shadow: 0 0 10px rgba(0,0,0,0.8);
+    z-index: 11; pointer-events: none;
+  }
+
+  /* ---- Leaderboard ---- */
+  #leaderboard {
+    position: fixed; top: 15px; right: 15px;
+    background: rgba(0,0,0,0.5); border-radius: 10px;
+    padding: 12px; color: #fff; font-size: 12px;
+    z-index: 11; min-width: 160px;
+    backdrop-filter: blur(5px); pointer-events: none;
+  }
+  #leaderboard h3 { margin-bottom: 6px; font-size: 14px; text-align: center; color: #ffd700; }
+  .lb-entry { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .lb-entry.self { color: #ffd700; font-weight: bold; }
+  .lb-rank { width: 22px; }
+  .lb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-score { width: 40px; text-align: right; }
+
+  /* ---- Minimap ---- */
+  #minimap-container { position: fixed; bottom: 15px; left: 15px; z-index: 11; pointer-events: none; }
+  #minimap { border: 2px solid rgba(255,255,255,0.3); border-radius: 5px; background: rgba(0,0,0,0.4); }
+
+  /* ---- Boost bar ---- */
+  #boost-bar-container {
+    position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%);
+    width: 150px; height: 8px;
+    background: rgba(0,0,0,0.4); border-radius: 4px;
+    z-index: 11; overflow: hidden; pointer-events: none;
+  }
+  #boost-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #00ffcc, #00ff66);
+    border-radius: 4px; width: 100%;
+  }
+
+  /* ---- Boost button (touch only) ---- */
+  #boost-btn {
+    display: none;
+    position: fixed; bottom: 30px; right: 25px;
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: rgba(0,204,136,0.2);
+    border: 3px solid rgba(0,204,136,0.5);
+    z-index: 50;
+    color: rgba(255,255,255,0.7);
+    font-size: 13px; font-weight: bold;
+    text-align: center;
+    line-height: 80px;
+  }
+  #boost-btn.active {
+    background: rgba(0,204,136,0.5);
+    border-color: rgba(0,255,170,0.8);
+    box-shadow: 0 0 20px rgba(0,204,136,0.5);
+  }
+
+  /* ---- Floating joystick (touch only) ---- */
+  #float-stick {
+    display: none;
+    position: fixed;
+    z-index: 40;
+    pointer-events: none;
+  }
+  #float-stick-base {
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    border: 2px solid rgba(255,255,255,0.12);
+    position: absolute;
+    top: 0; left: 0;
+  }
+  #float-stick-knob {
+    width: 54px; height: 54px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    border: 2px solid rgba(255,255,255,0.35);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  /* ---- Death screen ---- */
+  #death-screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; z-index: 100; pointer-events: all; cursor: default;
+  }
+  #death-screen h1 { color: #ff4444; font-size: 42px; margin-bottom: 10px; text-shadow: 0 0 20px rgba(255,0,0,0.5); }
+  #death-screen .stats { color: rgba(255,255,255,0.8); font-size: 17px; margin-bottom: 25px; }
+  #death-screen button {
+    padding: 14px 36px; font-size: 19px;
+    background: linear-gradient(135deg, #00cc88, #00aa66);
+    border: none; border-radius: 30px; color: #fff;
+    cursor: pointer; font-weight: bold;
+    box-shadow: 0 4px 15px rgba(0,204,136,0.4);
+  }
+
+  /* ---- Start screen ---- */
+  #start-screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, #1a1a4e, #0a0a2e);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; z-index: 200; cursor: default;
+  }
+  #start-screen h1 {
+    font-size: 60px; color: #fff;
+    text-shadow: 0 0 30px rgba(0,255,136,0.5), 0 0 60px rgba(0,255,136,0.2);
+    margin-bottom: 8px;
+  }
+  #start-screen .subtitle { color: rgba(255,255,255,0.5); font-size: 15px; margin-bottom: 35px; }
+  #player-name {
+    padding: 12px 20px; font-size: 18px;
+    border: 2px solid rgba(255,255,255,0.3); border-radius: 25px;
+    background: rgba(255,255,255,0.1); color: #fff;
+    text-align: center; width: 240px; margin-bottom: 22px;
+    outline: none;
+  }
+  #player-name:focus { border-color: #00cc88; }
+  #player-name::placeholder { color: rgba(255,255,255,0.3); }
+  #start-btn {
+    padding: 14px 45px; font-size: 21px;
+    background: linear-gradient(135deg, #00cc88, #00aa66);
+    border: none; border-radius: 30px; color: #fff;
+    cursor: pointer; font-weight: bold;
+    box-shadow: 0 4px 15px rgba(0,204,136,0.4);
+  }
+  #controls-hint {
+    position: absolute; bottom: 40px;
+    color: rgba(255,255,255,0.3); font-size: 12px; text-align: center;
+    padding: 0 20px;
+  }
+
+  /* ---- Responsive: small screens ---- */
+  @media (max-width: 600px) {
+    #start-screen h1 { font-size: 40px; }
+    #score { font-size: 17px; top: 10px; }
+    #length-display { font-size: 11px; top: 32px; }
+    #leaderboard { top: 8px; right: 8px; padding: 8px; font-size: 10px; min-width: 120px; }
+    #leaderboard h3 { font-size: 11px; margin-bottom: 4px; }
+    #minimap-container { bottom: 10px; left: 10px; }
+    #minimap { width: 100px !important; height: 100px !important; }
+    #boost-bar-container { width: 100px; height: 6px; bottom: 10px; }
+    #death-screen h1 { font-size: 32px; }
+    #death-screen .stats { font-size: 14px; }
+    #boost-btn { width: 65px; height: 65px; line-height: 65px; font-size: 11px; bottom: 20px; right: 15px; }
+    #float-stick-base { width: 110px; height: 110px; }
+    #float-stick-knob { width: 44px; height: 44px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+  <h1>Snake.io</h1>
+  <div class="subtitle">Slither, grow, and dominate</div>
+  <input type="text" id="player-name" placeholder="Enter your name" maxlength="15">
+  <button id="start-btn">Play</button>
+  <div id="controls-hint"></div>
+</div>
+
+<canvas id="game-canvas"></canvas>
+
+<div id="score">Score: 0</div>
+<div id="length-display">Length: 10</div>
+
+<div id="leaderboard">
+  <h3>Leaderboard</h3>
+  <div id="lb-entries"></div>
+</div>
+
+<div id="minimap-container">
+  <canvas id="minimap" width="150" height="150"></canvas>
+</div>
+
+<div id="boost-bar-container">
+  <div id="boost-bar"></div>
+</div>
+
+<!-- Touch-only controls -->
+<div id="boost-btn">BOOST</div>
+<div id="float-stick">
+  <div id="float-stick-base">
+    <div id="float-stick-knob"></div>
+  </div>
+</div>
+
+<div id="death-screen">
+  <h1>You Died!</h1>
+  <div class="stats" id="death-stats">Score: 0 | Length: 10</div>
+  <button id="respawn-btn">Play Again</button>
+</div>
+
+<script>
+// ============================================================
+// DEVICE DETECTION
+// ============================================================
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+// Set controls hint
+document.getElementById('controls-hint').textContent = isTouchDevice
+  ? 'Touch & drag to steer \u2022 Hold BOOST to speed up'
+  : 'Mouse to steer \u2022 Click or Space to boost';
+
+// Show touch controls only on touch devices
+if (isTouchDevice) {
+  document.getElementById('boost-btn').style.display = 'block';
+  // Move minimap to top-left on mobile to avoid button overlap
+  document.getElementById('minimap-container').style.bottom = 'auto';
+  document.getElementById('minimap-container').style.top = '60px';
+  document.getElementById('minimap-container').style.left = '10px';
+}
+
+// ============================================================
+// FULLSCREEN
+// ============================================================
+function requestFullscreen() {
+  const el = document.documentElement;
+  const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  if (rfs) {
+    rfs.call(el).catch(() => {});
+  }
+}
+
+// ============================================================
+// GAME CONSTANTS
+// ============================================================
+const WORLD_SIZE = 5000;
+const GRID_SPACING = 60;
+const FOOD_COUNT = 800;
+const AI_COUNT = 15;
+const BASE_SPEED = 3.2;
+const BOOST_SPEED = 5.5;
+const SEGMENT_SPACING = 8;
+const BASE_SNAKE_LENGTH = 10;
+const HEAD_RADIUS = 12;
+const BODY_RADIUS = 10;
+const TURN_SPEED = 0.08;
+const MAX_BOOST = 100;
+const BOOST_DRAIN = 0.6;
+const BOOST_REGEN = 0.15;
+const FOOD_RADIUS = 6;
+const FOOD_VALUE = 1;
+const KILL_FOOD_COUNT = 8;
+const BOUNDARY_MARGIN = 50;
+
+const AI_NAMES = [
+  "Viper","Cobra","Mamba","Python","Anaconda",
+  "Rattler","Boa","Adder","Asp","Krait",
+  "Taipan","Coral","Sidewinder","Copperhead","King",
+  "Noodle","Slinky","Wiggles","Scales","Slithers",
+  "Fangs","Hissy","Sssnake","Danger","Nope Rope"
+];
+const SNAKE_COLORS = [
+  {h:'#ff4466',b:'#cc2244'},{h:'#44bbff',b:'#2299dd'},
+  {h:'#44ff88',b:'#22cc66'},{h:'#ffaa22',b:'#dd8800'},
+  {h:'#ff66ff',b:'#cc44cc'},{h:'#ffff44',b:'#cccc22'},
+  {h:'#ff8844',b:'#cc6622'},{h:'#88ffff',b:'#66cccc'},
+  {h:'#aa88ff',b:'#8866cc'},{h:'#ff88aa',b:'#cc6688'},
+  {h:'#88ff44',b:'#66cc22'},{h:'#44ffcc',b:'#22ccaa'},
+];
+const FOOD_COLORS = [
+  '#ff6b6b','#ee5a24','#ffd32a','#0be881',
+  '#18dcff','#7158e2','#ff3838','#3ae374',
+  '#ff9f43','#a55eea','#ff6348','#2ed573',
+];
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const minimapCanvas = document.getElementById('minimap');
+const minimapCtx = minimapCanvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ============================================================
+// GAME STATE
+// ============================================================
+let gameRunning = false;
+let player = null;
+let aiSnakes = [];
+let foods = [];
+let particles = [];
+let camera = { x: 0, y: 0 };
+let mouseX = window.innerWidth / 2;
+let mouseY = window.innerHeight / 2;
+let boosting = false;
+let playerName = 'Player';
+let frameCount = 0;
+
+// ============================================================
+// TOUCH STATE
+// ============================================================
+let steerTouchId = null;    // finger used for steering
+let boostTouchId = null;    // finger used for boost button
+let steerOriginX = 0;       // where the steering touch started
+let steerOriginY = 0;
+let joystickAngle = 0;      // current joystick angle
+let hasJoystickInput = false; // true while finger is on joystick
+const boostBtn = document.getElementById('boost-btn');
+const floatStick = document.getElementById('float-stick');
+const floatStickBase = document.getElementById('float-stick-base');
+const floatStickKnob = document.getElementById('float-stick-knob');
+const STICK_RADIUS = 70;    // half of base size (140/2)
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function randInt(min, max) { return Math.floor(rand(min, max)); }
+function dist(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
+function angleTo(x1, y1, x2, y2) { return Math.atan2(y2-y1, x2-x1); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+function angleDiff(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+function randWorldPos() {
+  const m = 200;
+  return { x: rand(m, WORLD_SIZE - m), y: rand(m, WORLD_SIZE - m) };
+}
+function pickRandom(arr) { return arr[randInt(0, arr.length)]; }
+
+// ============================================================
+// SNAKE
+// ============================================================
+function createSnake(name, x, y, color, isPlayer) {
+  const angle = rand(0, Math.PI * 2);
+  const segments = [];
+  for (let i = 0; i < BASE_SNAKE_LENGTH; i++) {
+    segments.push({ x: x - Math.cos(angle) * SEGMENT_SPACING * i, y: y - Math.sin(angle) * SEGMENT_SPACING * i });
+  }
+  return {
+    name, segments, angle, targetAngle: angle, speed: BASE_SPEED, color, isPlayer,
+    score: 0, targetLength: BASE_SNAKE_LENGTH, boost: MAX_BOOST, isBoosting: false, alive: true,
+    aiTimer: 0, aiTargetAngle: angle, aiState: 'wander', aiStateTimer: 0, invincibleTimer: 120,
+  };
+}
+
+function getSnakeHeadRadius(s) { return HEAD_RADIUS + Math.min(s.segments.length * 0.03, 6); }
+function getSnakeBodyRadius(s) { return BODY_RADIUS + Math.min(s.segments.length * 0.025, 5); }
+function growSnake(s, amt) { s.targetLength += amt; s.score += amt; }
+
+function updateSnake(snake) {
+  if (!snake.alive) return;
+  if (snake.invincibleTimer > 0) snake.invincibleTimer--;
+
+  const diff = angleDiff(snake.angle, snake.targetAngle);
+  snake.angle += clamp(diff, -TURN_SPEED, TURN_SPEED) * 1.8;
+
+  if (snake.isBoosting && snake.boost > 0 && snake.segments.length > 12) {
+    snake.speed = BOOST_SPEED;
+    snake.boost -= BOOST_DRAIN;
+    if (frameCount % 8 === 0 && snake.targetLength > BASE_SNAKE_LENGTH) {
+      snake.targetLength -= 1;
+      const tail = snake.segments[snake.segments.length - 1];
+      spawnFood(tail.x + rand(-10,10), tail.y + rand(-10,10));
+    }
+  } else {
+    snake.speed = BASE_SPEED;
+    snake.isBoosting = false;
+    if (snake.boost < MAX_BOOST) snake.boost += BOOST_REGEN;
+  }
+
+  const head = snake.segments[0];
+  const newX = head.x + Math.cos(snake.angle) * snake.speed;
+  const newY = head.y + Math.sin(snake.angle) * snake.speed;
+
+  if (newX < BOUNDARY_MARGIN || newX > WORLD_SIZE - BOUNDARY_MARGIN ||
+      newY < BOUNDARY_MARGIN || newY > WORLD_SIZE - BOUNDARY_MARGIN) {
+    if (snake.isPlayer) { killSnake(snake); return; }
+    else { snake.targetAngle = angleTo(head.x, head.y, WORLD_SIZE/2, WORLD_SIZE/2); return; }
+  }
+
+  snake.segments.unshift({ x: newX, y: newY });
+  while (snake.segments.length > snake.targetLength) snake.segments.pop();
+}
+
+function killSnake(snake) {
+  if (!snake.alive) return;
+  snake.alive = false;
+  const step = Math.max(1, Math.floor(snake.segments.length / KILL_FOOD_COUNT));
+  for (let i = 0; i < snake.segments.length; i += step) {
+    const seg = snake.segments[i];
+    spawnFood(seg.x + rand(-15,15), seg.y + rand(-15,15), true);
+  }
+  for (let i = 0; i < 20; i++) {
+    particles.push({
+      x: snake.segments[0].x, y: snake.segments[0].y,
+      vx: rand(-3,3), vy: rand(-3,3),
+      life: rand(20,50), maxLife: 50, color: snake.color.h, radius: rand(3,8),
+    });
+  }
+  if (snake.isPlayer) showDeathScreen();
+  else setTimeout(() => respawnAI(snake), 3000);
+}
+
+function respawnAI(snake) {
+  const pos = randWorldPos();
+  const idx = aiSnakes.indexOf(snake);
+  if (idx >= 0) aiSnakes[idx] = createSnake(snake.name, pos.x, pos.y, pickRandom(SNAKE_COLORS), false);
+}
+
+// ============================================================
+// AI
+// ============================================================
+function updateAI(snake) {
+  if (!snake.alive) return;
+  snake.aiStateTimer--;
+  const head = snake.segments[0];
+
+  if (head.x < 300 || head.x > WORLD_SIZE-300 || head.y < 300 || head.y > WORLD_SIZE-300) {
+    snake.aiState = 'flee_boundary'; snake.aiStateTimer = 30;
+  }
+  if (snake.aiStateTimer <= 0) {
+    const r = Math.random();
+    if (r < 0.5) { snake.aiState = 'seek_food'; snake.aiStateTimer = randInt(60,180); }
+    else if (r < 0.8) { snake.aiState = 'wander'; snake.aiStateTimer = randInt(60,150); snake.aiTargetAngle = rand(0, Math.PI*2); }
+    else { snake.aiState = 'hunt'; snake.aiStateTimer = randInt(90,200); }
+  }
+
+  switch (snake.aiState) {
+    case 'flee_boundary':
+      snake.targetAngle = angleTo(head.x, head.y, WORLD_SIZE/2, WORLD_SIZE/2) + rand(-0.3,0.3);
+      snake.isBoosting = true; break;
+    case 'seek_food': {
+      let closest = null, cd = 400;
+      for (const f of foods) { const d = dist(head.x,head.y,f.x,f.y); if (d < cd) { cd = d; closest = f; } }
+      if (closest) snake.targetAngle = angleTo(head.x, head.y, closest.x, closest.y);
+      else { snake.aiState = 'wander'; snake.aiStateTimer = randInt(60,120); }
+      snake.isBoosting = false; break;
+    }
+    case 'hunt': {
+      let target = null, td = 500;
+      const all = player && player.alive ? [player,...aiSnakes] : aiSnakes;
+      for (const o of all) {
+        if (o === snake || !o.alive || o.segments.length > snake.segments.length*1.5) continue;
+        const d = dist(head.x,head.y,o.segments[0].x,o.segments[0].y);
+        if (d < td) { td = d; target = o; }
+      }
+      if (target) {
+        const th = target.segments[0];
+        snake.targetAngle = angleTo(head.x, head.y, th.x + Math.cos(target.angle)*100, th.y + Math.sin(target.angle)*100);
+        snake.isBoosting = td < 200 && snake.boost > 30;
+      } else snake.aiState = 'wander';
+      break;
+    }
+    default:
+      if (frameCount % 60 === 0) snake.aiTargetAngle += rand(-0.8,0.8);
+      snake.targetAngle = snake.aiTargetAngle;
+      snake.isBoosting = false; break;
+  }
+
+  const all = player && player.alive ? [player,...aiSnakes] : aiSnakes;
+  for (const o of all) {
+    if (o === snake || !o.alive) continue;
+    for (let i = 0; i < Math.min(o.segments.length,40); i += 2) {
+      const seg = o.segments[i];
+      const d = dist(head.x, head.y, seg.x, seg.y);
+      const ad = getSnakeBodyRadius(o) + getSnakeHeadRadius(snake) + 30;
+      if (d < ad) {
+        snake.targetAngle = angleTo(seg.x, seg.y, head.x, head.y);
+        snake.isBoosting = d < ad * 0.6 && snake.boost > 20;
+        break;
+      }
+    }
+  }
+}
+
+// ============================================================
+// FOOD
+// ============================================================
+function spawnFood(x, y, large) {
+  if (x === undefined) { const p = randWorldPos(); x = p.x; y = p.y; }
+  foods.push({ x, y, color: pickRandom(FOOD_COLORS),
+    radius: large ? rand(7,11) : FOOD_RADIUS,
+    value: large ? rand(2,5) : FOOD_VALUE,
+    pulse: rand(0, Math.PI*2),
+  });
+}
+function initFoods() { foods = []; for (let i = 0; i < FOOD_COUNT; i++) spawnFood(); }
+
+function checkFoodCollision(snake) {
+  if (!snake.alive) return;
+  const head = snake.segments[0];
+  const hr = getSnakeHeadRadius(snake);
+  for (let i = foods.length-1; i >= 0; i--) {
+    const f = foods[i];
+    if (dist(head.x, head.y, f.x, f.y) < hr + f.radius) {
+      growSnake(snake, Math.round(f.value));
+      for (let j = 0; j < 5; j++) particles.push({ x:f.x, y:f.y, vx:rand(-2,2), vy:rand(-2,2), life:rand(10,25), maxLife:25, color:f.color, radius:rand(2,4) });
+      foods.splice(i, 1);
+      if (foods.length < FOOD_COUNT) spawnFood();
+    }
+  }
+}
+
+// ============================================================
+// COLLISIONS
+// ============================================================
+function checkSnakeCollisions() {
+  const all = player && player.alive ? [player,...aiSnakes] : aiSnakes;
+  for (const s of all) {
+    if (!s.alive || s.invincibleTimer > 0) continue;
+    const head = s.segments[0], hr = getSnakeHeadRadius(s);
+    for (const o of all) {
+      if (o === s || !o.alive) continue;
+      const br = getSnakeBodyRadius(o);
+      for (let i = 5; i < o.segments.length; i++) {
+        if (dist(head.x, head.y, o.segments[i].x, o.segments[i].y) < hr + br - 4) {
+          killSnake(s);
+          growSnake(o, Math.round(s.segments.length * 0.3));
+          break;
+        }
+      }
+      if (!s.alive) break;
+    }
+  }
+}
+
+// ============================================================
+// PARTICLES
+// ============================================================
+function updateParticles() {
+  for (let i = particles.length-1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vx *= 0.95; p.vy *= 0.95; p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// ============================================================
+// CAMERA
+// ============================================================
+function updateCamera() {
+  if (!player || !player.alive) return;
+  const head = player.segments[0];
+  camera.x = lerp(camera.x, head.x - canvas.width/2, 0.1);
+  camera.y = lerp(camera.y, head.y - canvas.height/2, 0.1);
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
+  const sx = Math.floor(camera.x / GRID_SPACING) * GRID_SPACING;
+  const sy = Math.floor(camera.y / GRID_SPACING) * GRID_SPACING;
+  for (let x = sx; x < camera.x + canvas.width + GRID_SPACING; x += GRID_SPACING) {
+    ctx.beginPath(); ctx.moveTo(x-camera.x, 0); ctx.lineTo(x-camera.x, canvas.height); ctx.stroke();
+  }
+  for (let y = sy; y < camera.y + canvas.height + GRID_SPACING; y += GRID_SPACING) {
+    ctx.beginPath(); ctx.moveTo(0, y-camera.y); ctx.lineTo(canvas.width, y-camera.y); ctx.stroke();
+  }
+}
+
+function drawBoundary() {
+  ctx.strokeStyle = 'rgba(255,50,50,0.5)'; ctx.lineWidth = 4; ctx.setLineDash([20,10]);
+  ctx.strokeRect(BOUNDARY_MARGIN-camera.x, BOUNDARY_MARGIN-camera.y, WORLD_SIZE-BOUNDARY_MARGIN*2, WORLD_SIZE-BOUNDARY_MARGIN*2);
+  ctx.setLineDash([]);
+  const g = ctx.createRadialGradient(WORLD_SIZE/2-camera.x, WORLD_SIZE/2-camera.y, WORLD_SIZE*0.35, WORLD_SIZE/2-camera.x, WORLD_SIZE/2-camera.y, WORLD_SIZE*0.5);
+  g.addColorStop(0,'rgba(255,0,0,0)'); g.addColorStop(1,'rgba(255,0,0,0.15)');
+  ctx.fillStyle = g; ctx.fillRect(-camera.x, -camera.y, WORLD_SIZE, WORLD_SIZE);
+}
+
+function drawFood() {
+  const vx1=camera.x-50, vy1=camera.y-50, vx2=camera.x+canvas.width+50, vy2=camera.y+canvas.height+50;
+  for (const f of foods) {
+    if (f.x<vx1||f.x>vx2||f.y<vy1||f.y>vy2) continue;
+    const sx=f.x-camera.x, sy=f.y-camera.y;
+    const pulse = Math.sin(f.pulse + frameCount*0.05)*0.3+1;
+    const r = f.radius * pulse;
+    ctx.beginPath(); ctx.arc(sx,sy,r,0,Math.PI*2); ctx.fillStyle=f.color; ctx.fill();
+    ctx.beginPath(); ctx.arc(sx,sy,r+4,0,Math.PI*2); ctx.fillStyle=f.color+'33'; ctx.fill();
+  }
+}
+
+function drawSnake(snake) {
+  if (!snake.alive) return;
+  const segs = snake.segments;
+  if (segs.length < 2) return;
+  const headR = getSnakeHeadRadius(snake), bodyR = getSnakeBodyRadius(snake);
+  const head = segs[0];
+  if (dist(head.x, head.y, camera.x+canvas.width/2, camera.y+canvas.height/2) > Math.max(canvas.width,canvas.height) + segs.length*SEGMENT_SPACING) return;
+
+  if (snake.isBoosting) { ctx.shadowBlur = 20; ctx.shadowColor = snake.color.h; }
+  for (let i = segs.length-1; i >= 1; i--) {
+    const sx = segs[i].x-camera.x, sy = segs[i].y-camera.y;
+    if (sx<-30||sx>canvas.width+30||sy<-30||sy>canvas.height+30) continue;
+    const r = bodyR * (1 - (i/segs.length)*0.3);
+    ctx.beginPath(); ctx.arc(sx,sy,r,0,Math.PI*2);
+    ctx.fillStyle = Math.floor(i/3)%2===0 ? snake.color.h : snake.color.b; ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  const hx=head.x-camera.x, hy=head.y-camera.y;
+  ctx.beginPath(); ctx.arc(hx,hy,headR+5,0,Math.PI*2); ctx.fillStyle=snake.color.h+'44'; ctx.fill();
+  ctx.beginPath(); ctx.arc(hx,hy,headR,0,Math.PI*2); ctx.fillStyle=snake.color.h; ctx.fill();
+  ctx.strokeStyle=snake.color.b; ctx.lineWidth=2; ctx.stroke();
+
+  const eo=headR*0.45, er=headR*0.3, pr=er*0.55;
+  for (let s=-1; s<=1; s+=2) {
+    const ex=hx+Math.cos(snake.angle-s*0.5)*eo, ey=hy+Math.sin(snake.angle-s*0.5)*eo;
+    ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex+Math.cos(snake.angle)*pr*0.4, ey+Math.sin(snake.angle)*pr*0.4, pr,0,Math.PI*2); ctx.fillStyle='#111'; ctx.fill();
+  }
+  ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+  ctx.fillText(snake.name, hx, hy-headR-12);
+  ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.font='10px sans-serif';
+  ctx.fillText(segs.length, hx, hy-headR-2);
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const sx=p.x-camera.x, sy=p.y-camera.y, a=p.life/p.maxLife;
+    ctx.beginPath(); ctx.arc(sx,sy,p.radius*a,0,Math.PI*2);
+    ctx.fillStyle=p.color; ctx.globalAlpha=a; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMinimap() {
+  const mmW=minimapCanvas.width, mmH=minimapCanvas.height, sc=mmW/WORLD_SIZE;
+  minimapCtx.clearRect(0,0,mmW,mmH);
+  minimapCtx.fillStyle='rgba(0,0,0,0.6)'; minimapCtx.fillRect(0,0,mmW,mmH);
+  minimapCtx.strokeStyle='rgba(255,50,50,0.4)'; minimapCtx.lineWidth=1;
+  minimapCtx.strokeRect(BOUNDARY_MARGIN*sc, BOUNDARY_MARGIN*sc, (WORLD_SIZE-BOUNDARY_MARGIN*2)*sc, (WORLD_SIZE-BOUNDARY_MARGIN*2)*sc);
+  for (const s of aiSnakes) {
+    if (!s.alive) continue;
+    minimapCtx.beginPath(); minimapCtx.arc(s.segments[0].x*sc, s.segments[0].y*sc, 2, 0, Math.PI*2);
+    minimapCtx.fillStyle=s.color.h; minimapCtx.fill();
+  }
+  if (player && player.alive) {
+    minimapCtx.beginPath(); minimapCtx.arc(player.segments[0].x*sc, player.segments[0].y*sc, 4, 0, Math.PI*2);
+    minimapCtx.fillStyle='#fff'; minimapCtx.fill();
+    minimapCtx.strokeStyle='rgba(255,255,255,0.4)';
+    minimapCtx.strokeRect(camera.x*sc, camera.y*sc, canvas.width*sc, canvas.height*sc);
+  }
+}
+
+// ============================================================
+// UI
+// ============================================================
+function updateUI() {
+  if (!player) return;
+  document.getElementById('score').textContent = `Score: ${player.score}`;
+  document.getElementById('length-display').textContent = `Length: ${player.segments.length}`;
+  document.getElementById('boost-bar').style.width = `${(player.boost/MAX_BOOST)*100}%`;
+
+  const all = player.alive ? [player,...aiSnakes.filter(s=>s.alive)] : aiSnakes.filter(s=>s.alive);
+  all.sort((a,b) => b.score - a.score);
+  let html = '';
+  for (let i = 0; i < Math.min(all.length,10); i++) {
+    const s = all[i], self = s === player;
+    html += `<div class="lb-entry${self?' self':''}"><span class="lb-rank">${i+1}.</span><span class="lb-name">${s.name}</span><span class="lb-score">${s.score}</span></div>`;
+  }
+  document.getElementById('lb-entries').innerHTML = html;
+}
+
+function showDeathScreen() {
+  document.getElementById('death-stats').textContent = `Score: ${player.score} | Length: ${player.segments.length}`;
+  document.getElementById('death-screen').style.display = 'flex';
+  document.body.classList.remove('desktop-playing');
+}
+
+function hideDeathScreen() {
+  document.getElementById('death-screen').style.display = 'none';
+  if (!isTouchDevice) document.body.classList.add('desktop-playing');
+}
+
+// ============================================================
+// INPUT: MOUSE (desktop)
+// ============================================================
+document.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
+document.addEventListener('mousedown', (e) => {
+  // Don't trigger boost when clicking UI buttons
+  if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+  boosting = true;
+});
+document.addEventListener('mouseup', () => { boosting = false; });
+document.addEventListener('keydown', (e) => { if (e.code === 'Space') { boosting = true; e.preventDefault(); } });
+document.addEventListener('keyup', (e) => { if (e.code === 'Space') boosting = false; });
+
+// ============================================================
+// INPUT: TOUCH (mobile) - Floating joystick + Boost button
+// All touch events handled at document level for reliability.
+// ============================================================
+function isOnBoostBtn(x, y) {
+  const rect = boostBtn.getBoundingClientRect();
+  return x >= rect.left - 20 && x <= rect.right + 20 &&
+         y >= rect.top - 20 && y <= rect.bottom + 20;
+}
+
+function isOnUI(target) {
+  if (!target) return false;
+  if (target.tagName === 'BUTTON' || target.tagName === 'INPUT') return true;
+  if (target.closest('#death-screen') || target.closest('#start-screen')) return true;
+  return false;
+}
+
+function showFloatStick(cx, cy) {
+  const baseW = floatStickBase.offsetWidth || 140;
+  floatStick.style.display = 'block';
+  floatStick.style.left = (cx - baseW / 2) + 'px';
+  floatStick.style.top = (cy - baseW / 2) + 'px';
+  floatStickKnob.style.left = '50%';
+  floatStickKnob.style.top = '50%';
+  floatStickKnob.style.transform = 'translate(-50%, -50%)';
+}
+
+function moveFloatStickKnob(dx, dy) {
+  const baseW = floatStickBase.offsetWidth || 140;
+  const maxDist = baseW / 2 - 27; // base radius minus knob radius
+  const d = Math.sqrt(dx * dx + dy * dy);
+  const clamped = Math.min(d, maxDist);
+  const angle = Math.atan2(dy, dx);
+  const nx = clamped * Math.cos(angle);
+  const ny = clamped * Math.sin(angle);
+  floatStickKnob.style.left = `calc(50% + ${nx}px)`;
+  floatStickKnob.style.top = `calc(50% + ${ny}px)`;
+  floatStickKnob.style.transform = 'translate(-50%, -50%)';
+}
+
+function hideFloatStick() {
+  floatStick.style.display = 'none';
+}
+
+document.addEventListener('touchstart', (e) => {
+  if (!gameRunning) return;
+
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i];
+
+    if (isOnUI(e.target)) continue;
+
+    // Check if touching boost button
+    if (isOnBoostBtn(t.clientX, t.clientY) && boostTouchId === null) {
+      boostTouchId = t.identifier;
+      boosting = true;
+      boostBtn.classList.add('active');
+      e.preventDefault();
+      continue;
+    }
+
+    // Otherwise it's a steering touch — spawn floating joystick
+    if (steerTouchId === null) {
+      steerTouchId = t.identifier;
+      steerOriginX = t.clientX;
+      steerOriginY = t.clientY;
+      hasJoystickInput = true;
+      showFloatStick(t.clientX, t.clientY);
+      e.preventDefault();
+    }
+  }
+}, { passive: false });
+
+document.addEventListener('touchmove', (e) => {
+  if (!gameRunning) return;
+
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i];
+
+    if (t.identifier === steerTouchId) {
+      const dx = t.clientX - steerOriginX;
+      const dy = t.clientY - steerOriginY;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      // Only update angle if finger moved a small deadzone
+      if (d > 8) {
+        joystickAngle = Math.atan2(dy, dx);
+      }
+      moveFloatStickKnob(dx, dy);
+    }
+  }
+
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchend', (e) => {
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i];
+
+    if (t.identifier === steerTouchId) {
+      steerTouchId = null;
+      hasJoystickInput = false;
+      hideFloatStick();
+    }
+    if (t.identifier === boostTouchId) {
+      boostTouchId = null;
+      boosting = false;
+      boostBtn.classList.remove('active');
+    }
+  }
+}, { passive: false });
+
+document.addEventListener('touchcancel', (e) => {
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i];
+
+    if (t.identifier === steerTouchId) {
+      steerTouchId = null;
+      hasJoystickInput = false;
+      hideFloatStick();
+    }
+    if (t.identifier === boostTouchId) {
+      boostTouchId = null;
+      boosting = false;
+      boostBtn.classList.remove('active');
+    }
+  }
+}, { passive: false });
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+function gameLoop() {
+  if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
+  frameCount++;
+
+  if (player && player.alive) {
+    if (hasJoystickInput) {
+      // Touch: use joystick angle directly
+      player.targetAngle = joystickAngle;
+    } else {
+      // Desktop mouse: steer toward cursor
+      const head = player.segments[0];
+      player.targetAngle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
+    }
+    player.isBoosting = boosting;
+  }
+
+  if (player && player.alive) { updateSnake(player); checkFoodCollision(player); }
+  for (const ai of aiSnakes) { if (ai.alive) { updateAI(ai); updateSnake(ai); checkFoodCollision(ai); } }
+  checkSnakeCollisions();
+  updateParticles();
+  updateCamera();
+  while (foods.length < FOOD_COUNT) spawnFood();
+
+  // Render
+  ctx.fillStyle = '#0a0a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawGrid(); drawBoundary(); drawFood();
+  for (const ai of aiSnakes) drawSnake(ai);
+  if (player) drawSnake(player);
+  drawParticles();
+
+  // Desktop cursor
+  if (!isTouchDevice && player && player.alive) {
+    ctx.beginPath(); ctx.arc(mouseX,mouseY,15,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(mouseX,mouseY,3,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fill();
+  }
+
+  drawMinimap(); updateUI();
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// GAME START / RESTART
+// ============================================================
+function startGame() {
+  playerName = document.getElementById('player-name').value.trim() || 'Player';
+  document.getElementById('start-screen').style.display = 'none';
+  hideDeathScreen();
+  requestFullscreen();
+
+  initFoods();
+  const startPos = randWorldPos();
+  player = createSnake(playerName, startPos.x, startPos.y, pickRandom(SNAKE_COLORS), true);
+  camera.x = startPos.x - canvas.width/2;
+  camera.y = startPos.y - canvas.height/2;
+
+  aiSnakes = [];
+  const usedNames = new Set([playerName]);
+  for (let i = 0; i < AI_COUNT; i++) {
+    let name; do { name = pickRandom(AI_NAMES); } while (usedNames.has(name));
+    usedNames.add(name);
+    const pos = randWorldPos();
+    const ai = createSnake(name, pos.x, pos.y, SNAKE_COLORS[i % SNAKE_COLORS.length], false);
+    const extra = randInt(0,40); ai.targetLength += extra; ai.score += extra;
+    aiSnakes.push(ai);
+  }
+  particles = [];
+  gameRunning = true;
+}
+
+function respawnPlayer() {
+  hideDeathScreen();
+  requestFullscreen();
+  const startPos = randWorldPos();
+  player = createSnake(playerName, startPos.x, startPos.y, pickRandom(SNAKE_COLORS), true);
+  camera.x = startPos.x - canvas.width/2;
+  camera.y = startPos.y - canvas.height/2;
+}
+
+// ============================================================
+// EVENT BINDINGS
+// ============================================================
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('player-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startGame(); });
+document.getElementById('respawn-btn').addEventListener('click', respawnPlayer);
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
