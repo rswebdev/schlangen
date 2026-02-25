@@ -206,8 +206,9 @@ func NewGame() *Game {
 	used := make(map[string]bool)
 	for i := 0; i < AIBaseCount; i++ {
 		name := aiNames[i%len(aiNames)]
-		for used[name] {
-			name = aiNames[rand.Intn(len(aiNames))]
+		if used[name] {
+			// All base names taken, append number
+			name = fmt.Sprintf("%s %d", aiNames[rand.Intn(len(aiNames))], i)
 		}
 		used[name] = true
 		pos := randWorldPos()
