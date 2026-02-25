@@ -154,13 +154,15 @@
   }
   #player-name:focus { border-color: #00cc88; }
   #player-name::placeholder { color: rgba(255,255,255,0.3); }
-  #start-btn {
-    padding: 14px 45px; font-size: 21px;
+  #start-buttons { display: flex; gap: 12px; margin-bottom: 20px; }
+  #start-buttons button {
+    padding: 14px 28px; font-size: 18px;
     background: linear-gradient(135deg, #00cc88, #00aa66);
     border: none; border-radius: 30px; color: #fff;
     cursor: pointer; font-weight: bold;
     box-shadow: 0 4px 15px rgba(0,204,136,0.4);
   }
+  #start-buttons button:hover { filter: brightness(1.1); }
   #controls-hint {
     position: absolute; bottom: 40px;
     color: rgba(255,255,255,0.3); font-size: 12px; text-align: center;
@@ -182,7 +184,30 @@
     #boost-btn { width: 65px; height: 65px; line-height: 65px; font-size: 11px; bottom: 20px; right: 15px; }
     #float-stick-base { width: 110px; height: 110px; }
     #float-stick-knob { width: 44px; height: 44px; }
+    #start-buttons { flex-direction: column; gap: 8px; }
+    #start-buttons button { font-size: 16px; padding: 12px 20px; }
+    #join-panel { width: 300px; }
   }
+
+  /* ---- Join Game Panel ---- */
+  #join-panel { width: 340px; max-width: 90vw; text-align: center; }
+  .conn-status { color: rgba(255,255,255,0.6); font-size: 13px; margin-bottom: 12px; }
+  #join-panel textarea {
+    width: 100%; padding: 10px; font-size: 11px;
+    font-family: 'Courier New', monospace;
+    background: rgba(0,0,0,0.4); color: #0f0;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px; resize: none; margin-bottom: 10px;
+  }
+  .conn-btn {
+    padding: 10px 24px; font-size: 14px;
+    background: linear-gradient(135deg, #00cc88, #00aa66);
+    border: none; border-radius: 20px; color: #fff;
+    cursor: pointer; font-weight: bold; margin: 4px;
+  }
+  .conn-btn.secondary { background: rgba(255,255,255,0.12); }
+  .conn-btn:hover { filter: brightness(1.1); }
+  .conn-btn-row { display: flex; gap: 10px; justify-content: center; }
 </style>
 </head>
 <body>
@@ -191,7 +216,20 @@
   <h1>Snake.io</h1>
   <div class="subtitle">Slither, grow, and dominate</div>
   <input type="text" id="player-name" placeholder="Enter your name" maxlength="15">
-  <button id="start-btn">Play</button>
+  <div id="start-buttons">
+    <button id="solo-btn">Solo Play</button>
+    <button id="join-btn">Join Game</button>
+  </div>
+  <div id="join-panel" style="display:none">
+    <div id="join-status" class="conn-status">Paste the server's invite code:</div>
+    <textarea id="offer-input" rows="3" placeholder="Paste invite code here..."></textarea>
+    <button class="conn-btn" id="process-offer-btn">Connect</button>
+    <textarea id="answer-text" readonly rows="3" style="display:none" placeholder="Response code will appear here..."></textarea>
+    <button class="conn-btn" id="copy-answer-btn" style="display:none">Copy Response</button>
+    <div class="conn-btn-row">
+      <button class="conn-btn secondary" id="join-back-btn">Back</button>
+    </div>
+  </div>
   <div id="controls-hint"></div>
 </div>
 
@@ -330,6 +368,19 @@ let mouseY = window.innerHeight / 2;
 let boosting = false;
 let playerName = 'Player';
 let frameCount = 0;
+
+// ============================================================
+// NETWORK STATE
+// ============================================================
+let netMode = 'solo';  // 'solo' or 'client'
+let myPlayerId = -1;
+let hostChannel = null;
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]
+};
 
 // ============================================================
 // TOUCH STATE
@@ -856,11 +907,167 @@ document.addEventListener('touchcancel', (e) => {
 }, { passive: false });
 
 // ============================================================
+// WEBRTC CLIENT
+// ============================================================
+async function connectToServer() {
+  const offerB64 = document.getElementById('offer-input').value.trim();
+  if (!offerB64) return;
+
+  try {
+    const offer = JSON.parse(atob(offerB64));
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+
+    pc.ondatachannel = (e) => {
+      hostChannel = e.channel;
+      hostChannel.onopen = () => {
+        document.getElementById('join-status').textContent = 'Connected! Waiting for the game...';
+      };
+      hostChannel.onmessage = (ev) => onServerMessage(ev.data);
+      hostChannel.onclose = () => {
+        gameRunning = false;
+        alert('Disconnected from server.');
+        location.reload();
+      };
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate === null) {
+        const answerB64 = btoa(JSON.stringify(pc.localDescription));
+        document.getElementById('answer-text').value = answerB64;
+        document.getElementById('answer-text').style.display = 'block';
+        document.getElementById('copy-answer-btn').style.display = 'inline-block';
+        document.getElementById('join-status').textContent = 'Copy the response code and paste it into the server.';
+      }
+    };
+
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    document.getElementById('join-status').textContent = 'Generating response code...';
+  } catch (e) {
+    document.getElementById('join-status').textContent = 'Invalid invite code. Check and try again.';
+  }
+}
+
+function onServerMessage(data) {
+  try {
+    const msg = JSON.parse(data);
+    switch (msg.t) {
+      case 'welcome':
+        myPlayerId = msg.pid;
+        playerName = document.getElementById('player-name').value.trim() || 'Player';
+        hostChannel.send(JSON.stringify({ t: 'join', name: playerName }));
+        break;
+      case 's':
+        if (!gameRunning) {
+          netMode = 'client';
+          document.getElementById('start-screen').style.display = 'none';
+          hideDeathScreen();
+          gameRunning = true;
+          particles = [];
+        }
+        applyNetState(msg);
+        break;
+    }
+  } catch (e) {}
+}
+
+function applyNetState(msg) {
+  const wasAlive = player && player.alive;
+
+  const allSnakes = [];
+  for (const sd of msg.sn) {
+    const segs = [];
+    const segData = sd[9];
+    for (let i = 0; i < segData.length; i += 2) {
+      segs.push({ x: segData[i], y: segData[i + 1] });
+    }
+    allSnakes.push({
+      name: sd[0],
+      color: SNAKE_COLORS[sd[1]] || SNAKE_COLORS[0],
+      alive: sd[2] === 1,
+      score: sd[3],
+      angle: sd[4],
+      targetAngle: sd[4],
+      isBoosting: sd[5] === 1,
+      boost: sd[6],
+      targetLength: sd[7],
+      playerId: sd[8],
+      segments: segs,
+      isPlayer: sd[8] === myPlayerId,
+      invincibleTimer: sd[10] || 0,
+      speed: sd[5] === 1 ? BOOST_SPEED : BASE_SPEED,
+    });
+  }
+
+  player = allSnakes.find(s => s.playerId === myPlayerId) || null;
+  aiSnakes = allSnakes.filter(s => s.playerId !== myPlayerId);
+
+  if (wasAlive && player && !player.alive) showDeathScreen();
+
+  if (msg.f) {
+    foods = msg.f.map(fd => ({
+      x: fd[0], y: fd[1],
+      color: FOOD_COLORS[fd[2]] || FOOD_COLORS[0],
+      radius: fd[3], value: fd[4],
+      pulse: rand(0, Math.PI * 2),
+    }));
+  }
+}
+
+function sendClientInput() {
+  if (!hostChannel || hostChannel.readyState !== 'open' || !player) return;
+
+  let angle = 0;
+  if (player.alive) {
+    if (hasJoystickInput) {
+      angle = joystickAngle;
+    } else {
+      const head = player.segments[0];
+      angle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
+    }
+  }
+
+  try {
+    hostChannel.send(JSON.stringify({
+      t: 'input',
+      a: +(angle.toFixed(3)),
+      b: boosting,
+    }));
+  } catch (e) {}
+}
+
+// ============================================================
 // GAME LOOP
 // ============================================================
 function gameLoop() {
   if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
   frameCount++;
+
+  // CLIENT MODE: send input, render received state, no local simulation
+  if (netMode === 'client') {
+    sendClientInput();
+    updateParticles();
+    if (player && player.alive) updateCamera();
+
+    ctx.fillStyle = '#0a0a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawGrid(); drawBoundary(); drawFood();
+    for (const ai of aiSnakes) drawSnake(ai);
+    if (player) drawSnake(player);
+    drawParticles();
+
+    if (!isTouchDevice && player && player.alive) {
+      ctx.beginPath(); ctx.arc(mouseX,mouseY,15,0,Math.PI*2);
+      ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(mouseX,mouseY,3,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fill();
+    }
+
+    drawMinimap(); updateUI();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
 
   if (player && player.alive) {
     if (hasJoystickInput) {
@@ -941,9 +1148,33 @@ function respawnPlayer() {
 // ============================================================
 // EVENT BINDINGS
 // ============================================================
-document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('solo-btn').addEventListener('click', startGame);
+document.getElementById('join-btn').addEventListener('click', () => {
+  document.getElementById('start-buttons').style.display = 'none';
+  document.getElementById('join-panel').style.display = 'block';
+});
+document.getElementById('process-offer-btn').addEventListener('click', connectToServer);
+document.getElementById('copy-answer-btn').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('answer-text').value).then(() => {
+    document.getElementById('copy-answer-btn').textContent = 'Copied!';
+    setTimeout(() => document.getElementById('copy-answer-btn').textContent = 'Copy Response', 2000);
+  });
+});
+document.getElementById('join-back-btn').addEventListener('click', () => {
+  document.getElementById('join-panel').style.display = 'none';
+  document.getElementById('start-buttons').style.display = 'flex';
+});
 document.getElementById('player-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startGame(); });
-document.getElementById('respawn-btn').addEventListener('click', respawnPlayer);
+document.getElementById('respawn-btn').addEventListener('click', () => {
+  if (netMode === 'client') {
+    hideDeathScreen();
+    if (hostChannel && hostChannel.readyState === 'open') {
+      hostChannel.send(JSON.stringify({ t: 'respawn' }));
+    }
+  } else {
+    respawnPlayer();
+  }
+});
 
 requestAnimationFrame(gameLoop);
 </script>
