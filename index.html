@@ -1046,35 +1046,22 @@ function deserializeBinaryState(buffer) {
   const serverPlayer = allSnakes.find(s => s.playerId === myPlayerId) || null;
   aiSnakes = allSnakes.filter(s => s.playerId !== myPlayerId);
 
-  // For the local player, keep client-predicted segments to avoid snap-back.
-  // Only update authoritative properties from server, plus soft position correction.
+  // Server-authoritative position with camera absorption.
+  // Accept server segments fully (prevents drift), but absorb the visual
+  // discontinuity into the camera offset. The camera's existing lerp
+  // smoothing (0.1/frame) decays this over many frames, making it invisible.
   if (serverPlayer && prevPlayer && prevPlayer.alive && serverPlayer.alive) {
-    prevPlayer.score = serverPlayer.score;
-    prevPlayer.boost = serverPlayer.boost;
-    prevPlayer.targetLength = serverPlayer.targetLength;
-    prevPlayer.invincibleTimer = serverPlayer.invincibleTimer;
-    prevPlayer.isBoosting = serverPlayer.isBoosting;
-    prevPlayer.speed = serverPlayer.speed;
-    prevPlayer.name = serverPlayer.name;
-    prevPlayer.color = serverPlayer.color;
-
-    // Soft position correction: blend client position toward server position
-    const CORRECTION = 0.3;
-    if (serverPlayer.segments.length > 0 && prevPlayer.segments.length > 0) {
-      const clientHead = prevPlayer.segments[0];
-      const serverHead = serverPlayer.segments[0];
-      const dx = (serverHead.x - clientHead.x) * CORRECTION;
-      const dy = (serverHead.y - clientHead.y) * CORRECTION;
-      for (const seg of prevPlayer.segments) {
-        seg.x += dx;
-        seg.y += dy;
-      }
+    if (prevPlayer.segments.length > 0 && serverPlayer.segments.length > 0) {
+      const jumpX = prevPlayer.segments[0].x - serverPlayer.segments[0].x;
+      const jumpY = prevPlayer.segments[0].y - serverPlayer.segments[0].y;
+      // Clamp to avoid huge offset on reconnect/respawn
+      camera.x += clamp(jumpX, -100, 100);
+      camera.y += clamp(jumpY, -100, 100);
     }
-
-    // Sync angle toward server to prevent steering drift
-    prevPlayer.angle += angleDiff(prevPlayer.angle, serverPlayer.angle) * CORRECTION;
-
-    player = prevPlayer;
+    // Accept server state, but keep client angle for responsive local steering
+    const clientAngle = prevPlayer.angle;
+    player = serverPlayer;
+    player.angle = clientAngle;
   } else {
     player = serverPlayer;
   }
@@ -1128,7 +1115,7 @@ function gameLoop() {
 
   // CLIENT MODE: predict movement between network updates for smooth 60fps
   if (netMode === 'client') {
-    if (frameCount % 4 === 0) sendClientInput();
+    sendClientInput();
 
     // Forward-predict player snake with local input (responsive steering)
     if (player && player.alive && player.segments.length >= 2) {
