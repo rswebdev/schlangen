@@ -1047,7 +1047,7 @@ function deserializeBinaryState(buffer) {
   aiSnakes = allSnakes.filter(s => s.playerId !== myPlayerId);
 
   // For the local player, keep client-predicted segments to avoid snap-back.
-  // Only update authoritative properties (score, boost, targetLength, alive) from server.
+  // Only update authoritative properties from server, plus soft position correction.
   if (serverPlayer && prevPlayer && prevPlayer.alive && serverPlayer.alive) {
     prevPlayer.score = serverPlayer.score;
     prevPlayer.boost = serverPlayer.boost;
@@ -1057,6 +1057,23 @@ function deserializeBinaryState(buffer) {
     prevPlayer.speed = serverPlayer.speed;
     prevPlayer.name = serverPlayer.name;
     prevPlayer.color = serverPlayer.color;
+
+    // Soft position correction: blend client position toward server position
+    const CORRECTION = 0.3;
+    if (serverPlayer.segments.length > 0 && prevPlayer.segments.length > 0) {
+      const clientHead = prevPlayer.segments[0];
+      const serverHead = serverPlayer.segments[0];
+      const dx = (serverHead.x - clientHead.x) * CORRECTION;
+      const dy = (serverHead.y - clientHead.y) * CORRECTION;
+      for (const seg of prevPlayer.segments) {
+        seg.x += dx;
+        seg.y += dy;
+      }
+    }
+
+    // Sync angle toward server to prevent steering drift
+    prevPlayer.angle += angleDiff(prevPlayer.angle, serverPlayer.angle) * CORRECTION;
+
     player = prevPlayer;
   } else {
     player = serverPlayer;
