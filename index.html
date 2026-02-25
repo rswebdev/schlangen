@@ -377,6 +377,7 @@ let myPlayerId = -1;
 let ws = null;  // WebSocket connection
 const snakeMeta = new Map(); // playerId -> { name, colorIdx } cached metadata
 let playerInterpBuf = []; // server snapshot buffer for entity interpolation
+let aiInterpBufs = new Map(); // playerId -> [{time, data}] for AI snake interpolation
 
 // ============================================================
 // TOUCH STATE
@@ -943,6 +944,7 @@ function connectToServer() {
         ws = null;
         snakeMeta.clear();
         playerInterpBuf = [];
+        aiInterpBufs.clear();
         document.getElementById('start-screen').style.display = 'flex';
         document.getElementById('online-panel').style.display = 'none';
         document.getElementById('start-buttons').style.display = 'flex';
@@ -1046,7 +1048,21 @@ function deserializeBinaryState(buffer) {
 
   const prevPlayer = player;
   const serverPlayer = allSnakes.find(s => s.playerId === myPlayerId) || null;
-  aiSnakes = allSnakes.filter(s => s.playerId !== myPlayerId);
+
+  // Buffer AI snake snapshots for interpolation (same technique as player)
+  const aiSnapshots = allSnakes.filter(s => s.playerId !== myPlayerId);
+  const snapTime = performance.now();
+  const activeAiIds = new Set();
+  for (const ai of aiSnapshots) {
+    activeAiIds.add(ai.playerId);
+    if (!aiInterpBufs.has(ai.playerId)) aiInterpBufs.set(ai.playerId, []);
+    const buf = aiInterpBufs.get(ai.playerId);
+    buf.push({ time: snapTime, data: ai });
+    while (buf.length > 6) buf.shift();
+  }
+  for (const [id] of aiInterpBufs) {
+    if (!activeAiIds.has(id)) aiInterpBufs.delete(id);
+  }
 
   // Entity interpolation: buffer server snapshots, interpolate at 60fps.
   // No prediction, no correction artifacts. Adds ~80ms visual latency.
@@ -1115,6 +1131,44 @@ function sendClientInput() {
 }
 
 // ============================================================
+// ENTITY INTERPOLATION HELPER
+// ============================================================
+function interpolateSnake(buf, renderTime) {
+  if (buf.length < 2) return buf.length > 0 ? buf[buf.length - 1].data : null;
+
+  let s0 = null, s1 = null;
+  for (let i = buf.length - 1; i >= 1; i--) {
+    if (buf[i-1].time <= renderTime && buf[i].time >= renderTime) {
+      s0 = buf[i-1]; s1 = buf[i]; break;
+    }
+  }
+  if (!s0 || !s1) { s0 = buf[buf.length - 2]; s1 = buf[buf.length - 1]; }
+
+  const dt = s1.time - s0.time;
+  if (dt <= 0) return s1.data;
+
+  let t = clamp((renderTime - s0.time) / dt, 0, 1.5);
+  const prev = s0.data.segments, curr = s1.data.segments;
+  const count = Math.min(prev.length, curr.length);
+  const segs = [];
+  for (let i = 0; i < count; i++) {
+    segs.push({
+      x: prev[i].x + (curr[i].x - prev[i].x) * t,
+      y: prev[i].y + (curr[i].y - prev[i].y) * t,
+    });
+  }
+  const longer = curr.length > prev.length ? curr : prev;
+  for (let i = count; i < longer.length; i++) {
+    segs.push({ x: longer[i].x, y: longer[i].y });
+  }
+
+  const result = Object.assign({}, s1.data);
+  result.segments = segs;
+  result.angle = s0.data.angle + angleDiff(s0.data.angle, s1.data.angle) * clamp(t, 0, 1);
+  return result;
+}
+
+// ============================================================
 // GAME LOOP
 // ============================================================
 function gameLoop() {
@@ -1125,63 +1179,24 @@ function gameLoop() {
   if (netMode === 'client') {
     sendClientInput();
 
+    const now = performance.now();
+    const renderDelay = 80; // ms - slightly more than one server tick (66ms)
+    const renderTime = now - renderDelay;
+
     // Entity interpolation for player snake
     if (player && player.alive && playerInterpBuf.length >= 2) {
-      const now = performance.now();
-      const buf = playerInterpBuf;
-      const renderDelay = 80; // ms - slightly more than one server tick (66ms)
-      const renderTime = now - renderDelay;
-
-      // Find the two snapshots bracketing renderTime
-      let s0 = null, s1 = null;
-      for (let i = buf.length - 1; i >= 1; i--) {
-        if (buf[i-1].time <= renderTime && buf[i].time >= renderTime) {
-          s0 = buf[i-1];
-          s1 = buf[i];
-          break;
-        }
-      }
-
-      // Fallback: use last two if no bracket found (early connect or hiccup)
-      if (!s0 || !s1) {
-        s0 = buf[buf.length - 2];
-        s1 = buf[buf.length - 1];
-      }
-
-      const dt = s1.time - s0.time;
-      if (dt > 0) {
-        let t = (renderTime - s0.time) / dt;
-        t = clamp(t, 0, 1.5); // allow slight extrapolation on hiccup
-
-        const prev = s0.data.segments;
-        const curr = s1.data.segments;
-        const count = Math.min(prev.length, curr.length);
-        const segs = [];
-        for (let i = 0; i < count; i++) {
-          segs.push({
-            x: prev[i].x + (curr[i].x - prev[i].x) * t,
-            y: prev[i].y + (curr[i].y - prev[i].y) * t,
-          });
-        }
-        // Append extra segments from whichever snapshot is longer
-        const longer = curr.length > prev.length ? curr : prev;
-        for (let i = count; i < longer.length; i++) {
-          segs.push({ x: longer[i].x, y: longer[i].y });
-        }
-        player.segments = segs;
-        player.angle = s0.data.angle + angleDiff(s0.data.angle, s1.data.angle) * clamp(t, 0, 1);
+      const result = interpolateSnake(playerInterpBuf, renderTime);
+      if (result) {
+        player.segments = result.segments;
+        player.angle = result.angle;
       }
     }
 
-    // Forward-predict other snakes with last known angle/speed
-    for (const ai of aiSnakes) {
-      if (!ai.alive || ai.segments.length < 2) continue;
-      const head = ai.segments[0];
-      ai.segments.unshift({
-        x: head.x + Math.cos(ai.angle) * ai.speed,
-        y: head.y + Math.sin(ai.angle) * ai.speed,
-      });
-      while (ai.segments.length > ai.targetLength) ai.segments.pop();
+    // Interpolate AI snakes from server snapshots (same technique as player)
+    aiSnakes = [];
+    for (const [, buf] of aiInterpBufs) {
+      const result = interpolateSnake(buf, renderTime);
+      if (result && result.alive) aiSnakes.push(result);
     }
 
     updateParticles();
