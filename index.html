@@ -186,19 +186,21 @@
     #float-stick-knob { width: 44px; height: 44px; }
     #start-buttons { flex-direction: column; gap: 8px; }
     #start-buttons button { font-size: 16px; padding: 12px 20px; }
-    #join-panel { width: 300px; }
+    #online-panel { width: 300px; }
   }
 
-  /* ---- Join Game Panel ---- */
-  #join-panel { width: 340px; max-width: 90vw; text-align: center; }
+  /* ---- Online Panel ---- */
+  #online-panel { width: 340px; max-width: 90vw; text-align: center; }
   .conn-status { color: rgba(255,255,255,0.6); font-size: 13px; margin-bottom: 12px; }
-  #join-panel textarea {
-    width: 100%; padding: 10px; font-size: 11px;
-    font-family: 'Courier New', monospace;
-    background: rgba(0,0,0,0.4); color: #0f0;
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 8px; resize: none; margin-bottom: 10px;
+  #server-url {
+    padding: 12px 20px; font-size: 16px;
+    border: 2px solid rgba(255,255,255,0.3); border-radius: 25px;
+    background: rgba(255,255,255,0.1); color: #fff;
+    text-align: center; width: 100%; margin-bottom: 12px;
+    outline: none; font-family: 'Courier New', monospace;
   }
+  #server-url:focus { border-color: #00cc88; }
+  #server-url::placeholder { color: rgba(255,255,255,0.3); }
   .conn-btn {
     padding: 10px 24px; font-size: 14px;
     background: linear-gradient(135deg, #00cc88, #00aa66);
@@ -207,7 +209,7 @@
   }
   .conn-btn.secondary { background: rgba(255,255,255,0.12); }
   .conn-btn:hover { filter: brightness(1.1); }
-  .conn-btn-row { display: flex; gap: 10px; justify-content: center; }
+  .conn-btn-row { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -218,16 +220,14 @@
   <input type="text" id="player-name" placeholder="Enter your name" maxlength="15">
   <div id="start-buttons">
     <button id="solo-btn">Solo Play</button>
-    <button id="join-btn">Join Game</button>
+    <button id="online-btn">Online Play</button>
   </div>
-  <div id="join-panel" style="display:none">
-    <div id="join-status" class="conn-status">Paste the server's invite code:</div>
-    <textarea id="offer-input" rows="3" placeholder="Paste invite code here..."></textarea>
-    <button class="conn-btn" id="process-offer-btn">Connect</button>
-    <textarea id="answer-text" readonly rows="3" style="display:none" placeholder="Response code will appear here..."></textarea>
-    <button class="conn-btn" id="copy-answer-btn" style="display:none">Copy Response</button>
+  <div id="online-panel" style="display:none">
+    <div id="online-status" class="conn-status">Enter server address:</div>
+    <input type="text" id="server-url" placeholder="ws://localhost:8080/ws" value="">
     <div class="conn-btn-row">
-      <button class="conn-btn secondary" id="join-back-btn">Back</button>
+      <button class="conn-btn" id="connect-btn">Connect</button>
+      <button class="conn-btn secondary" id="online-back-btn">Back</button>
     </div>
   </div>
   <div id="controls-hint"></div>
@@ -299,7 +299,7 @@ function requestFullscreen() {
 // ============================================================
 // GAME CONSTANTS
 // ============================================================
-const WORLD_SIZE = 5000;
+let WORLD_SIZE = 5000;
 const GRID_SPACING = 60;
 const FOOD_COUNT = 800;
 const AI_COUNT = 15;
@@ -374,13 +374,7 @@ let frameCount = 0;
 // ============================================================
 let netMode = 'solo';  // 'solo' or 'client'
 let myPlayerId = -1;
-let hostChannel = null;
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ]
-};
+let ws = null;  // WebSocket connection
 
 // ============================================================
 // TOUCH STATE
@@ -907,60 +901,62 @@ document.addEventListener('touchcancel', (e) => {
 }, { passive: false });
 
 // ============================================================
-// WEBRTC CLIENT
+// WEBSOCKET CLIENT
 // ============================================================
-async function connectToServer() {
-  const offerB64 = document.getElementById('offer-input').value.trim();
-  if (!offerB64) return;
+function connectToServer() {
+  const url = document.getElementById('server-url').value.trim();
+  if (!url) return;
+
+  document.getElementById('online-status').textContent = 'Connecting...';
+  document.getElementById('connect-btn').disabled = true;
 
   try {
-    const offer = JSON.parse(atob(offerB64));
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
 
-    pc.ondatachannel = (e) => {
-      hostChannel = e.channel;
-      hostChannel.binaryType = 'arraybuffer';
-      hostChannel.onopen = () => {
-        document.getElementById('join-status').textContent = 'Connected! Waiting for the game...';
-      };
-      hostChannel.onmessage = (ev) => {
-        if (typeof ev.data === 'string') {
-          try {
-            const msg = JSON.parse(ev.data);
-            if (msg.t === 'welcome') {
-              myPlayerId = msg.pid;
-              playerName = document.getElementById('player-name').value.trim() || 'Player';
-              hostChannel.send(JSON.stringify({ t: 'join', name: playerName }));
-            }
-          } catch (err) {}
-        } else {
-          deserializeBinaryState(ev.data);
-        }
-      };
-      hostChannel.onclose = () => {
-        gameRunning = false;
-        alert('Disconnected from server.');
-        location.reload();
-      };
+    ws.onopen = () => {
+      document.getElementById('online-status').textContent = 'Connected! Joining game...';
     };
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate === null) {
-        const answerB64 = btoa(JSON.stringify(pc.localDescription));
-        document.getElementById('answer-text').value = answerB64;
-        document.getElementById('answer-text').style.display = 'block';
-        document.getElementById('copy-answer-btn').style.display = 'inline-block';
-        document.getElementById('join-status').textContent = 'Copy the response code and paste it into the server.';
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.t === 'welcome') {
+            myPlayerId = msg.pid;
+            if (msg.ws) WORLD_SIZE = msg.ws;
+            playerName = document.getElementById('player-name').value.trim() || 'Player';
+            ws.send(JSON.stringify({ t: 'join', name: playerName }));
+          }
+        } catch (err) {}
+      } else {
+        deserializeBinaryState(ev.data);
       }
     };
 
-    await pc.setRemoteDescription(offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    ws.onclose = () => {
+      if (gameRunning && netMode === 'client') {
+        gameRunning = false;
+        netMode = 'solo';
+        ws = null;
+        document.getElementById('start-screen').style.display = 'flex';
+        document.getElementById('online-panel').style.display = 'none';
+        document.getElementById('start-buttons').style.display = 'flex';
+        document.getElementById('online-status').textContent = 'Disconnected from server.';
+        document.getElementById('connect-btn').disabled = false;
+        WORLD_SIZE = 5000;
+      }
+    };
 
-    document.getElementById('join-status').textContent = 'Generating response code...';
+    ws.onerror = () => {
+      document.getElementById('online-status').textContent = 'Connection failed. Check the address and try again.';
+      document.getElementById('connect-btn').disabled = false;
+      ws = null;
+    };
   } catch (e) {
-    document.getElementById('join-status').textContent = 'Invalid invite code. Check and try again.';
+    document.getElementById('online-status').textContent = 'Invalid address. Check and try again.';
+    document.getElementById('connect-btn').disabled = false;
+    ws = null;
   }
 }
 
@@ -1000,7 +996,7 @@ function deserializeBinaryState(buffer) {
     const angle = view.getInt16(o) / 10000; o += 2;
     const boost = view.getUint8(o++);
     const targetLength = view.getUint16(o); o += 2;
-    const playerId = view.getInt8(o++);
+    const playerId = view.getInt16(o); o += 2;
     const invincibleTimer = view.getUint8(o++);
     const segCount = view.getUint16(o); o += 2;
 
@@ -1053,7 +1049,7 @@ function deserializeBinaryState(buffer) {
 }
 
 function sendClientInput() {
-  if (!hostChannel || hostChannel.readyState !== 'open' || !player) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || !player) return;
 
   let angle = 0;
   if (player.alive) {
@@ -1070,7 +1066,7 @@ function sendClientInput() {
   view.setUint8(0, 2);
   view.setInt16(1, Math.round(angle * 10000));
   view.setUint8(3, boosting ? 1 : 0);
-  try { hostChannel.send(buf); } catch (e) {}
+  try { ws.send(buf); } catch (e) {}
 }
 
 // ============================================================
@@ -1217,27 +1213,28 @@ function respawnPlayer() {
 // EVENT BINDINGS
 // ============================================================
 document.getElementById('solo-btn').addEventListener('click', startGame);
-document.getElementById('join-btn').addEventListener('click', () => {
+document.getElementById('online-btn').addEventListener('click', () => {
   document.getElementById('start-buttons').style.display = 'none';
-  document.getElementById('join-panel').style.display = 'block';
+  document.getElementById('online-panel').style.display = 'block';
+  // Auto-fill server URL based on current page location
+  const urlInput = document.getElementById('server-url');
+  if (!urlInput.value) {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    urlInput.value = `${proto}//${location.host}/ws`;
+  }
 });
-document.getElementById('process-offer-btn').addEventListener('click', connectToServer);
-document.getElementById('copy-answer-btn').addEventListener('click', () => {
-  navigator.clipboard.writeText(document.getElementById('answer-text').value).then(() => {
-    document.getElementById('copy-answer-btn').textContent = 'Copied!';
-    setTimeout(() => document.getElementById('copy-answer-btn').textContent = 'Copy Response', 2000);
-  });
-});
-document.getElementById('join-back-btn').addEventListener('click', () => {
-  document.getElementById('join-panel').style.display = 'none';
+document.getElementById('connect-btn').addEventListener('click', connectToServer);
+document.getElementById('server-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectToServer(); });
+document.getElementById('online-back-btn').addEventListener('click', () => {
+  document.getElementById('online-panel').style.display = 'none';
   document.getElementById('start-buttons').style.display = 'flex';
 });
 document.getElementById('player-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startGame(); });
 document.getElementById('respawn-btn').addEventListener('click', () => {
   if (netMode === 'client') {
     hideDeathScreen();
-    if (hostChannel && hostChannel.readyState === 'open') {
-      hostChannel.send(JSON.stringify({ t: 'respawn' }));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ t: 'respawn' }));
     }
   } else {
     respawnPlayer();
