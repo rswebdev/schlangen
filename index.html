@@ -1042,8 +1042,25 @@ function deserializeBinaryState(buffer) {
     });
   }
 
-  player = allSnakes.find(s => s.playerId === myPlayerId) || null;
+  const prevPlayer = player;
+  const serverPlayer = allSnakes.find(s => s.playerId === myPlayerId) || null;
   aiSnakes = allSnakes.filter(s => s.playerId !== myPlayerId);
+
+  // For the local player, keep client-predicted segments to avoid snap-back.
+  // Only update authoritative properties (score, boost, targetLength, alive) from server.
+  if (serverPlayer && prevPlayer && prevPlayer.alive && serverPlayer.alive) {
+    prevPlayer.score = serverPlayer.score;
+    prevPlayer.boost = serverPlayer.boost;
+    prevPlayer.targetLength = serverPlayer.targetLength;
+    prevPlayer.invincibleTimer = serverPlayer.invincibleTimer;
+    prevPlayer.isBoosting = serverPlayer.isBoosting;
+    prevPlayer.speed = serverPlayer.speed;
+    prevPlayer.name = serverPlayer.name;
+    prevPlayer.color = serverPlayer.color;
+    player = prevPlayer;
+  } else {
+    player = serverPlayer;
+  }
 
   if (wasAlive && player && !player.alive) showDeathScreen();
 
