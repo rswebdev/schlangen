@@ -106,6 +106,8 @@ type StatsSnapshot struct {
 	FoodCount      int                `json:"foodCount"`
 	AvgTickMs      float64            `json:"avgTickMs"`
 	MaxTickMs      float64            `json:"maxTickMs"`
+	BandwidthKBps  float64            `json:"bandwidthKBps"`
+	TotalBytesSent int64              `json:"totalBytesSent"`
 	Frame          int                `json:"frame"`
 	Leaderboard    []LeaderboardEntry `json:"leaderboard"`
 }
@@ -141,6 +143,13 @@ type Game struct {
 	tickDurations [60]time.Duration
 	tickDurIdx    int
 	maxTickMs     float64
+
+	// Bandwidth tracking
+	totalBytesSent int64
+	bwPerSec       [30]int64 // bytes-per-second ring buffer (last 30s)
+	bwSecIdx       int
+	bwAccum        int64 // bytes accumulated in the current second
+	bwLastSec      int   // frame number of the last second boundary
 
 	// Stats request channel (channel-of-channels for thread-safe reads)
 	statsReqCh chan chan StatsSnapshot
@@ -670,6 +679,20 @@ func (g *Game) buildSnapshot() StatsSnapshot {
 		avgMs = float64(totalNs) / float64(count) / 1e6
 	}
 
+	// Compute average bandwidth (KB/s) from ring buffer
+	var bwTotal int64
+	bwCount := 0
+	for _, b := range g.bwPerSec {
+		if b > 0 {
+			bwTotal += b
+			bwCount++
+		}
+	}
+	bwKBps := 0.0
+	if bwCount > 0 {
+		bwKBps = float64(bwTotal) / float64(bwCount) / 1024.0
+	}
+
 	aiCount := 0
 	lb := make([]LeaderboardEntry, 0, len(g.snakes))
 	for _, s := range g.snakes {
@@ -702,6 +725,8 @@ func (g *Game) buildSnapshot() StatsSnapshot {
 		FoodCount:      len(g.foods),
 		AvgTickMs:      math.Round(avgMs*100) / 100,
 		MaxTickMs:      math.Round(g.maxTickMs*100) / 100,
+		BandwidthKBps:  math.Round(bwKBps*100) / 100,
+		TotalBytesSent: g.totalBytesSent,
 		Frame:          g.frame,
 		Leaderboard:    lb,
 	}
@@ -755,12 +780,20 @@ func (g *Game) tick() {
 		g.maxTickMs = ms
 	}
 
+	// Flush bandwidth accumulator every second (every TickRate frames)
+	if g.frame-g.bwLastSec >= TickRate {
+		g.bwPerSec[g.bwSecIdx%len(g.bwPerSec)] = g.bwAccum
+		g.bwSecIdx++
+		g.bwAccum = 0
+		g.bwLastSec = g.frame
+	}
+
 	// Periodic stats every ~30 seconds
 	if g.frame%1800 == 0 {
 		snap := g.buildSnapshot()
-		log.Printf("[STATS] uptime=%s players=%d peak=%d ai=%d kills=%d food=%d avgTick=%.2fms maxTick=%.2fms",
+		log.Printf("[STATS] uptime=%s players=%d peak=%d ai=%d kills=%d food=%d avgTick=%.2fms maxTick=%.2fms bw=%.1fKB/s",
 			snap.Uptime, snap.CurrentPlayers, snap.PeakPlayers, snap.AICount,
-			snap.TotalKills, snap.FoodCount, snap.AvgTickMs, snap.MaxTickMs)
+			snap.TotalKills, snap.FoodCount, snap.AvgTickMs, snap.MaxTickMs, snap.BandwidthKBps)
 	}
 }
 

@@ -417,8 +417,11 @@ func (g *Game) broadcast(includeFood bool) {
 			continue
 		}
 		data := g.serializeStateFor(p, includeFood)
+		n := int64(len(data))
 		select {
 		case p.sendCh <- data:
+			g.totalBytesSent += n
+			g.bwAccum += n
 		default:
 			// Buffer full, drop frame for this player
 		}
@@ -502,6 +505,13 @@ const dashboardHTML = `<!DOCTYPE html>
 </table>
 <div class="status-bar" id="status">Connecting...</div>
 <script>
+function fmtBw(v) { return v >= 1024 ? (v/1024).toFixed(1)+'<span class="unit"> MB/s</span>' : v+'<span class="unit"> KB/s</span>'; }
+function fmtBytes(v) {
+  if (v >= 1073741824) return (v/1073741824).toFixed(2)+'<span class="unit"> GB</span>';
+  if (v >= 1048576) return (v/1048576).toFixed(1)+'<span class="unit"> MB</span>';
+  if (v >= 1024) return (v/1024).toFixed(1)+'<span class="unit"> KB</span>';
+  return v+'<span class="unit"> B</span>';
+}
 const cardDefs = [
   {k:'currentPlayers', label:'Players Online', unit:''},
   {k:'peakPlayers',    label:'Peak Players',   unit:''},
@@ -512,6 +522,8 @@ const cardDefs = [
   {k:'totalLeaves',    label:'Total Leaves',   unit:''},
   {k:'avgTickMs',      label:'Avg Tick',       unit:'ms', perf:true},
   {k:'maxTickMs',      label:'Max Tick',       unit:'ms', perf:true},
+  {k:'bandwidthKBps',  label:'Bandwidth Out',  unit:'KB/s', perf:true, fmt:fmtBw},
+  {k:'totalBytesSent', label:'Total Sent',     unit:'', perf:true, fmt:fmtBytes},
 ];
 function render(d) {
   document.getElementById('uptime').textContent = d.uptime || '';
@@ -519,8 +531,9 @@ function render(d) {
   for (const c of cardDefs) {
     let v = d[c.k];
     if (v === undefined) v = '-';
+    let valHtml = c.fmt ? c.fmt(v) : v+' <span class="unit">'+c.unit+'</span>';
     html += '<div class="card'+(c.perf?' perf':'')+'"><div class="label">'+c.label+'</div>'+
-            '<div class="value">'+v+' <span class="unit">'+c.unit+'</span></div></div>';
+            '<div class="value">'+valHtml+'</div></div>';
   }
   document.getElementById('cards').innerHTML = html;
   let lb = '';
