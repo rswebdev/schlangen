@@ -11,33 +11,58 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Constants (must produce identical gameplay to client solo mode)
+// Game configuration (configurable via CLI flags / config file)
+// ---------------------------------------------------------------------------
+
+type GameConfig struct {
+	WorldSize      int     `json:"worldSize"`
+	FoodCount      int     `json:"foodCount"`
+	AICount        int     `json:"aiCount"`
+	BaseSpeed      float64 `json:"baseSpeed"`
+	BoostSpeed     float64 `json:"boostSpeed"`
+	TurnSpeed      float64 `json:"turnSpeed"`
+	MaxBoost       float64 `json:"maxBoost"`
+	BoostDrain     float64 `json:"boostDrain"`
+	BoostRegen     float64 `json:"boostRegen"`
+	BaseSnakeLen   int     `json:"baseSnakeLen"`
+	KillFoodCount  int     `json:"killFoodCount"`
+	BoundaryMargin float64 `json:"boundaryMargin"`
+	AIRespawnTicks int     `json:"aiRespawnTicks"`
+}
+
+func DefaultConfig() GameConfig {
+	return GameConfig{
+		WorldSize:      10000,
+		FoodCount:      3000,
+		AICount:        30,
+		BaseSpeed:      3.2,
+		BoostSpeed:     5.5,
+		TurnSpeed:      0.08,
+		MaxBoost:       100,
+		BoostDrain:     0.6,
+		BoostRegen:     0.15,
+		BaseSnakeLen:   10,
+		KillFoodCount:  8,
+		BoundaryMargin: 50,
+		AIRespawnTicks: 180,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fixed constants (technical/network, not configurable)
 // ---------------------------------------------------------------------------
 const (
-	WorldSize      = 10000
-	FoodCount      = 3000
-	AIBaseCount    = 30
-	BaseSpeed      = 3.2
-	BoostSpeed     = 5.5
-	BaseSnakeLen   = 10
-	HeadRadius     = 12.0
-	BodyRadius     = 10.0
-	TurnSpeed      = 0.08
-	MaxBoost       = 100.0
-	BoostDrain     = 0.6
-	BoostRegen     = 0.15
-	FoodRadiusVal  = 6.0
-	FoodValueVal   = 1.0
-	KillFoodCount  = 8
-	BoundaryMargin = 50.0
-	TickRate       = 60
-	NetTickRate    = 2
-	FoodSyncRate   = 9
-	ViewDist       = 2500.0
-	FoodViewDist   = 1200.0
-	NumColors      = 12
-	NumFoodColors  = 12
-	AIRespawnTicks = 180 // 3 seconds
+	HeadRadius    = 12.0
+	BodyRadius    = 10.0
+	FoodRadiusVal = 6.0
+	FoodValueVal  = 1.0
+	TickRate      = 60
+	NetTickRate   = 2
+	FoodSyncRate  = 9
+	ViewDist      = 2500.0
+	FoodViewDist  = 1200.0
+	NumColors     = 12
+	NumFoodColors = 12
 )
 
 var aiNames = [...]string{
@@ -122,6 +147,7 @@ type LeaderboardEntry struct {
 }
 
 type Game struct {
+	cfg     GameConfig
 	snakes  []*Snake
 	foods   []*Food
 	players map[int]*Player
@@ -192,10 +218,11 @@ func clampF(v, lo, hi float64) float64 {
 	return v
 }
 
-func randWorldPos() Vec2 {
+func (g *Game) randWorldPos() Vec2 {
+	ws := float64(g.cfg.WorldSize)
 	return Vec2{
-		X: 200 + rand.Float64()*(WorldSize-400),
-		Y: 200 + rand.Float64()*(WorldSize-400),
+		X: 200 + rand.Float64()*(ws-400),
+		Y: 200 + rand.Float64()*(ws-400),
 	}
 }
 
@@ -211,8 +238,9 @@ func bodyRadius(s *Snake) float64 {
 // Game constructor
 // ---------------------------------------------------------------------------
 
-func NewGame() *Game {
+func NewGame(cfg GameConfig) *Game {
 	g := &Game{
+		cfg:        cfg,
 		players:    make(map[int]*Player),
 		inputCh:    make(chan InputMsg, 2048),
 		joinCh:     make(chan *Player, 32),
@@ -223,14 +251,13 @@ func NewGame() *Game {
 	}
 
 	used := make(map[string]bool)
-	for i := 0; i < AIBaseCount; i++ {
+	for i := 0; i < cfg.AICount; i++ {
 		name := aiNames[i%len(aiNames)]
 		if used[name] {
-			// All base names taken, append number
 			name = fmt.Sprintf("%s %d", aiNames[rand.Intn(len(aiNames))], i)
 		}
 		used[name] = true
-		pos := randWorldPos()
+		pos := g.randWorldPos()
 		s := g.createSnake(name, pos.X, pos.Y, i%NumColors, true, nextAIID())
 		extra := rand.Intn(40)
 		s.TargetLen += extra
@@ -238,7 +265,7 @@ func NewGame() *Game {
 		g.snakes = append(g.snakes, s)
 	}
 
-	for i := 0; i < FoodCount; i++ {
+	for i := 0; i < cfg.FoodCount; i++ {
 		g.foods = append(g.foods, g.newFood())
 	}
 	return g
@@ -250,7 +277,7 @@ func NewGame() *Game {
 
 func (g *Game) createSnake(name string, x, y float64, colorIdx int, isAI bool, pid int) *Snake {
 	angle := rand.Float64() * 2 * math.Pi
-	segs := make([]Vec2, BaseSnakeLen)
+	segs := make([]Vec2, g.cfg.BaseSnakeLen)
 	for i := range segs {
 		segs[i] = Vec2{
 			X: x - math.Cos(angle)*8*float64(i),
@@ -259,8 +286,8 @@ func (g *Game) createSnake(name string, x, y float64, colorIdx int, isAI bool, p
 	}
 	return &Snake{
 		Name: name, Segments: segs, Angle: angle, TargetAngle: angle,
-		Speed: BaseSpeed, ColorIdx: colorIdx, IsAI: isAI, PlayerID: pid,
-		TargetLen: BaseSnakeLen, Boost: MaxBoost, Alive: true, InvTimer: 120,
+		Speed: g.cfg.BaseSpeed, ColorIdx: colorIdx, IsAI: isAI, PlayerID: pid,
+		TargetLen: g.cfg.BaseSnakeLen, Boost: g.cfg.MaxBoost, Alive: true, InvTimer: 120,
 		AIState: "wander", AITargetAngle: angle,
 	}
 }
@@ -279,12 +306,12 @@ func (g *Game) updateSnake(s *Snake) {
 	}
 
 	diff := angleDiff(s.Angle, s.TargetAngle)
-	s.Angle += clampF(diff, -TurnSpeed, TurnSpeed) * 1.8
+	s.Angle += clampF(diff, -g.cfg.TurnSpeed, g.cfg.TurnSpeed) * 1.8
 
 	if s.IsBoosting && s.Boost > 0 && len(s.Segments) > 12 {
-		s.Speed = BoostSpeed
-		s.Boost -= BoostDrain
-		if g.frame%8 == 0 && s.TargetLen > BaseSnakeLen {
+		s.Speed = g.cfg.BoostSpeed
+		s.Boost -= g.cfg.BoostDrain
+		if g.frame%8 == 0 && s.TargetLen > g.cfg.BaseSnakeLen {
 			s.TargetLen--
 			tail := s.Segments[len(s.Segments)-1]
 			g.foods = append(g.foods, &Food{
@@ -296,10 +323,10 @@ func (g *Game) updateSnake(s *Snake) {
 			})
 		}
 	} else {
-		s.Speed = BaseSpeed
+		s.Speed = g.cfg.BaseSpeed
 		s.IsBoosting = false
-		if s.Boost < MaxBoost {
-			s.Boost += BoostRegen
+		if s.Boost < g.cfg.MaxBoost {
+			s.Boost += g.cfg.BoostRegen
 		}
 	}
 
@@ -307,14 +334,16 @@ func (g *Game) updateSnake(s *Snake) {
 	newX := head.X + math.Cos(s.Angle)*s.Speed
 	newY := head.Y + math.Sin(s.Angle)*s.Speed
 
-	if newX < BoundaryMargin || newX > WorldSize-BoundaryMargin ||
-		newY < BoundaryMargin || newY > WorldSize-BoundaryMargin {
+	ws := float64(g.cfg.WorldSize)
+	bm := g.cfg.BoundaryMargin
+	if newX < bm || newX > ws-bm ||
+		newY < bm || newY > ws-bm {
 		if !s.IsAI {
 			log.Printf("[DEATH] '%s' hit boundary (score: %d)", s.Name, s.Score)
 			g.killSnake(s)
 			return
 		}
-		s.TargetAngle = math.Atan2(WorldSize/2-head.Y, WorldSize/2-head.X)
+		s.TargetAngle = math.Atan2(ws/2-head.Y, ws/2-head.X)
 		return
 	}
 
@@ -331,7 +360,7 @@ func (g *Game) killSnake(s *Snake) {
 	}
 	s.Alive = false
 
-	step := len(s.Segments) / KillFoodCount
+	step := len(s.Segments) / g.cfg.KillFoodCount
 	if step < 1 {
 		step = 1
 	}
@@ -346,12 +375,12 @@ func (g *Game) killSnake(s *Snake) {
 	}
 
 	if s.IsAI {
-		s.RespawnTmr = AIRespawnTicks
+		s.RespawnTmr = g.cfg.AIRespawnTicks
 	}
 }
 
 func (g *Game) respawnAI(s *Snake) {
-	pos := randWorldPos()
+	pos := g.randWorldPos()
 	*s = *g.createSnake(s.Name, pos.X, pos.Y, rand.Intn(NumColors), true, nextAIID())
 	extra := rand.Intn(40)
 	s.TargetLen += extra
@@ -368,9 +397,10 @@ func (g *Game) updateAI(s *Snake) {
 	}
 	s.AIStateTimer--
 	head := s.Segments[0]
+	ws := float64(g.cfg.WorldSize)
 
 	// Near boundary → flee
-	if head.X < 300 || head.X > WorldSize-300 || head.Y < 300 || head.Y > WorldSize-300 {
+	if head.X < 300 || head.X > ws-300 || head.Y < 300 || head.Y > ws-300 {
 		s.AIState = "flee"
 		s.AIStateTimer = 30
 	}
@@ -394,7 +424,7 @@ func (g *Game) updateAI(s *Snake) {
 
 	switch s.AIState {
 	case "flee":
-		s.TargetAngle = math.Atan2(WorldSize/2-head.Y, WorldSize/2-head.X) + rand.Float64()*0.6 - 0.3
+		s.TargetAngle = math.Atan2(ws/2-head.Y, ws/2-head.X) + rand.Float64()*0.6 - 0.3
 		s.IsBoosting = true
 
 	case "food":
@@ -473,7 +503,7 @@ func (g *Game) updateAI(s *Snake) {
 // ---------------------------------------------------------------------------
 
 func (g *Game) newFood() *Food {
-	pos := randWorldPos()
+	pos := g.randWorldPos()
 	return &Food{
 		X: pos.X, Y: pos.Y,
 		ColorIdx: rand.Intn(NumFoodColors),
@@ -580,7 +610,7 @@ func (g *Game) handleJoin(p *Player) {
 		}
 	}
 
-	pos := randWorldPos()
+	pos := g.randWorldPos()
 	snake := g.createSnake(p.name, pos.X, pos.Y, rand.Intn(NumColors), false, p.id)
 	p.snake = snake
 	g.snakes = append(g.snakes, snake)
@@ -616,7 +646,7 @@ func (g *Game) handleLeave(id int) {
 				break
 			}
 		}
-		pos := randWorldPos()
+		pos := g.randWorldPos()
 		name := aiNames[rand.Intn(len(aiNames))]
 		ai := g.createSnake(name, pos.X, pos.Y, rand.Intn(NumColors), true, nextAIID())
 		extra := rand.Intn(40)
@@ -642,7 +672,7 @@ func (g *Game) handleRespawn(id int) {
 		}
 	}
 
-	pos := randWorldPos()
+	pos := g.randWorldPos()
 	snake := g.createSnake(p.name, pos.X, pos.Y, rand.Intn(NumColors), false, p.id)
 	p.snake = snake
 	g.snakes = append(g.snakes, snake)
@@ -765,7 +795,7 @@ func (g *Game) tick() {
 
 	g.checkSnakeCollisions()
 
-	for len(g.foods) < FoodCount {
+	for len(g.foods) < g.cfg.FoodCount {
 		g.foods = append(g.foods, g.newFood())
 	}
 

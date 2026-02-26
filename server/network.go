@@ -63,7 +63,7 @@ func HandleWS(game *Game, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send welcome (JSON, includes world size)
-	welcome := fmt.Sprintf(`{"t":"welcome","pid":%d,"ws":%d}`, id, WorldSize)
+	welcome := fmt.Sprintf(`{"t":"welcome","pid":%d,"ws":%d}`, id, game.cfg.WorldSize)
 	conn.WriteMessage(websocket.TextMessage, []byte(welcome))
 	log.Printf("[WS] Welcome sent to player %d (%s)", id, r.RemoteAddr)
 
@@ -190,8 +190,8 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 		cx = p.snake.Segments[0].X
 		cy = p.snake.Segments[0].Y
 	} else {
-		cx = WorldSize / 2
-		cy = WorldSize / 2
+		cx = float64(g.cfg.WorldSize) / 2
+		cy = float64(g.cfg.WorldSize) / 2
 	}
 
 	// Always include own snake
