@@ -10,14 +10,13 @@ go build -o snake-server .
 ./snake-server
 ```
 
-Open http://localhost:8080 in your browser.
+Open http://localhost:8080 in your browser. The client HTML is embedded in the binary — no additional files needed.
 
 ### Server Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-port` | `8080` | HTTP/WebSocket server port |
-| `-static` | `..` | Directory containing `index.html` |
 
 Example with custom port:
 
@@ -32,18 +31,18 @@ Example with custom port:
 
 ### Controls
 
-**Desktop:** Move the mouse to steer, hold left click to boost.
+**Desktop:** Move the mouse to steer, hold left click or Space to boost.
 
 **Mobile:** Touch and drag to steer with the virtual joystick, tap the boost button to boost.
 
 ## Project Structure
 
 ```
-index.html          Client (game rendering, input, networking)
 server/
-  main.go           Entry point, HTTP + WebSocket server
+  main.go           Entry point, HTTP server, embedded client
   game.go           Game logic (snakes, AI, food, collisions)
   network.go        WebSocket handling, binary protocol serialization
+  index.html        Client (game rendering, input, networking) — embedded via go:embed
   go.mod            Go module definition
 ```
 
@@ -80,11 +79,11 @@ sequenceDiagram
     Note over S: Every 2 frames (30 Hz net tick)
 
     rect rgb(40, 40, 80)
-        Note over S: serializeStateFor() per player<br/>Viewport-filtered snakes<br/>+ global summary (all alive snakes)
+        Note over S: serializeStateFor() per player<br/>Viewport-filtered snakes<br/>+ global summary every 2nd net tick (15 Hz)
         par Per-player state
-            S->>A: Binary state (A's viewport + summary)
-            S->>B: Binary state (B's viewport + summary)
-            S->>C: Binary state (C's viewport + summary)
+            S->>A: Binary state (A's viewport)
+            S->>B: Binary state (B's viewport)
+            S->>C: Binary state (C's viewport)
         end
     end
 
@@ -94,7 +93,7 @@ sequenceDiagram
         C->>S: Binary input (angle + boost) 4 bytes
     end
 
-    Note over S: Every 3rd net tick: food data included
+    Note over S: Every 9th net tick: food data included
 ```
 
 ### Data Flow Detail
@@ -118,10 +117,10 @@ sequenceDiagram
     GL->>GL: checkCollisions()
 
     Note over GL: Every 2nd frame (NetTickRate=2)
-    GL->>GL: buildSummaryBytes() — all alive snakes (once)
+    GL->>GL: buildSummaryBytes() — all alive snakes (every 2nd net tick)
     loop For each player
         GL->>GL: serializeStateFor(player) — viewport filtered
-        GL->>WP: sendCh <- binary state + summary
+        GL->>WP: sendCh <- binary state [+ summary]
     end
     WP->>WS: WriteMessage()
     WS->>Client: Binary state
@@ -137,11 +136,21 @@ Each state message contains:
 | Section | Content | Scope |
 |---------|---------|-------|
 | Header | type=1, flags, snakeCount | - |
-| Snakes | Per-snake: position, segments, score, metadata | Viewport-filtered (nearby only) |
-| Food | Position, color, radius, value | Viewport-filtered, every 3rd net tick |
-| Summary | Head position, score, name, color per alive snake | **Global** (all snakes, for leaderboard + minimap) |
+| Snakes | Per-snake: position, every 3rd segment, score, metadata | Viewport-filtered (nearby only) |
+| Food | Position, color, radius, value | Viewport-filtered (1200u radius), every 9th net tick |
+| Summary | Head position, score, name, color per alive snake | **Global** (all snakes), every 2nd net tick |
 
 Client input is a fixed 4-byte binary message: `type(1) + angle_int16(2) + boost(1)`.
+
+### Bandwidth
+
+Per-client outbound bandwidth is ~38 KB/s, broken down roughly as:
+
+| Component | KB/s | Frequency |
+|-----------|------|-----------|
+| Snakes (viewport) | ~27 | 30 Hz |
+| Food (viewport) | ~4 | 3.3 Hz |
+| Summary (global) | ~7 | 15 Hz |
 
 ## Requirements
 
