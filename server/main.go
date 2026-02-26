@@ -56,10 +56,10 @@ func main() {
 	})
 	http.HandleFunc("/dashboard", HandleDashboard)
 
-	addr := fmt.Sprintf(":%d", *port)
-	log.Printf("Listening on http://0.0.0.0%s", addr)
+	addr := fmt.Sprintf("0.0.0.0:%d", *port)
+	log.Printf("Listening on http://%s", addr)
 	log.Printf("Serving static files from %s", absStatic)
-	log.Printf("WebSocket: ws://0.0.0.0%s/ws", addr)
-	log.Printf("Dashboard: http://0.0.0.0%s/dashboard", addr)
+	log.Printf("WebSocket: ws://%s/ws", addr)
+	log.Printf("Dashboard: http://%s/dashboard", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
