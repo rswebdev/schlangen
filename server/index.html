@@ -115,6 +115,36 @@
     transform: translate(-50%, -50%);
   }
 
+  /* ---- Pause screen ---- */
+  #pause-screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; z-index: 90; pointer-events: all; cursor: default;
+  }
+  #pause-screen h1 { color: #fff; font-size: 42px; margin-bottom: 20px; text-shadow: 0 0 20px rgba(255,255,255,0.3); }
+  #pause-screen button {
+    padding: 14px 36px; font-size: 19px;
+    background: linear-gradient(135deg, #00cc88, #00aa66);
+    border: none; border-radius: 30px; color: #fff;
+    cursor: pointer; font-weight: bold;
+    box-shadow: 0 4px 15px rgba(0,204,136,0.4);
+  }
+  #pause-btn {
+    display: none;
+    position: fixed; top: 15px; left: 15px;
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.2);
+    z-index: 11;
+    color: rgba(255,255,255,0.6);
+    font-size: 18px;
+    line-height: 36px;
+    text-align: center;
+    cursor: pointer;
+  }
+
   /* ---- Death screen ---- */
   #death-screen {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -179,6 +209,7 @@
     #minimap-container { bottom: 10px; left: 10px; }
     #minimap { width: 100px !important; height: 100px !important; }
     #boost-bar-container { width: 100px; height: 6px; bottom: 10px; }
+    #pause-screen h1 { font-size: 32px; }
     #death-screen h1 { font-size: 32px; }
     #death-screen .stats { font-size: 14px; }
     #boost-btn { width: 65px; height: 65px; line-height: 65px; font-size: 11px; bottom: 20px; right: 15px; }
@@ -302,6 +333,13 @@
   </div>
 </div>
 
+<div id="pause-btn">| |</div>
+
+<div id="pause-screen">
+  <h1>Paused</h1>
+  <button id="resume-btn">Resume</button>
+</div>
+
 <div id="death-screen">
   <h1>You Died!</h1>
   <div class="stats" id="death-stats">Score: 0 | Length: 10</div>
@@ -414,6 +452,7 @@ let frameCount = 0;
 let lastTimestamp = 0;
 let soloAccum = 0;
 const SOLO_TICK_MS = 1000 / 60;
+let paused = false;
 
 // ============================================================
 // NETWORK STATE
@@ -816,6 +855,9 @@ function updateUI() {
 }
 
 function showDeathScreen() {
+  paused = false;
+  document.getElementById('pause-screen').style.display = 'none';
+  document.getElementById('pause-btn').style.display = 'none';
   document.getElementById('death-stats').textContent = `Score: ${player.score} | Length: ${player.segments.length}`;
   document.getElementById('death-screen').style.display = 'flex';
   document.body.classList.remove('desktop-playing');
@@ -824,6 +866,20 @@ function showDeathScreen() {
 function hideDeathScreen() {
   document.getElementById('death-screen').style.display = 'none';
   if (!isTouchDevice) document.body.classList.add('desktop-playing');
+}
+
+function togglePause() {
+  if (netMode !== 'solo' || !gameRunning || !player || !player.alive) return;
+  paused = !paused;
+  if (paused) {
+    document.getElementById('pause-screen').style.display = 'flex';
+    document.body.classList.remove('desktop-playing');
+  } else {
+    document.getElementById('pause-screen').style.display = 'none';
+    lastTimestamp = 0;
+    soloAccum = 0;
+    if (!isTouchDevice) document.body.classList.add('desktop-playing');
+  }
 }
 
 // ============================================================
@@ -836,7 +892,10 @@ document.addEventListener('mousedown', (e) => {
   boosting = true;
 });
 document.addEventListener('mouseup', () => { boosting = false; });
-document.addEventListener('keydown', (e) => { if (e.code === 'Space') { boosting = true; e.preventDefault(); } });
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { boosting = true; e.preventDefault(); }
+  if (e.code === 'Escape') { togglePause(); e.preventDefault(); }
+});
 document.addEventListener('keyup', (e) => { if (e.code === 'Space') boosting = false; });
 
 // ============================================================
@@ -1373,6 +1432,17 @@ function gameLoop(timestamp) {
   }
 
   // SOLO MODE: fixed 60Hz timestep (decoupled from display refresh rate)
+  if (paused) {
+    updateCamera();
+    ctx.fillStyle = '#0a0a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawGrid(); drawBoundary(); drawFood();
+    for (const ai of aiSnakes) drawSnake(ai);
+    if (player) drawSnake(player);
+    drawParticles(); drawMinimap(); updateUI();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   if (lastTimestamp === 0) lastTimestamp = timestamp;
   let delta = timestamp - lastTimestamp;
   lastTimestamp = timestamp;
@@ -1451,10 +1521,15 @@ function startGame() {
   particles = [];
   lastTimestamp = 0;
   soloAccum = 0;
+  paused = false;
+  document.getElementById('pause-screen').style.display = 'none';
+  if (isTouchDevice) document.getElementById('pause-btn').style.display = 'block';
   gameRunning = true;
 }
 
 function respawnPlayer() {
+  paused = false;
+  document.getElementById('pause-screen').style.display = 'none';
   hideDeathScreen();
   requestFullscreen();
   const startPos = randWorldPos();
@@ -1502,6 +1577,8 @@ document.getElementById('respawn-btn').addEventListener('click', () => {
     respawnPlayer();
   }
 });
+document.getElementById('resume-btn').addEventListener('click', togglePause);
+document.getElementById('pause-btn').addEventListener('click', togglePause);
 
 requestAnimationFrame(gameLoop);
 </script>
