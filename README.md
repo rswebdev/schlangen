@@ -17,12 +17,52 @@ Open http://localhost:8080 in your browser. The client HTML is embedded in the b
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-port` | `8080` | HTTP/WebSocket server port |
+| `-config` | | Path to JSON config file |
+| `-world-size` | `10000` | World size |
+| `-food-count` | `3000` | Food item count |
+| `-ai-count` | `30` | AI snake count |
+| `-base-speed` | `3.2` | Base snake speed |
+| `-boost-speed` | `5.5` | Boost speed |
+| `-turn-speed` | `0.08` | Turn speed |
+| `-max-boost` | `100` | Max boost meter |
+| `-boost-drain` | `0.6` | Boost drain rate |
+| `-boost-regen` | `0.15` | Boost regen rate |
+| `-base-snake-len` | `10` | Base snake length |
+| `-kill-food-count` | `8` | Food dropped on kill |
+| `-boundary-margin` | `50` | Boundary margin |
+| `-ai-respawn-ticks` | `180` | AI respawn delay in ticks |
 
-Example with custom port:
+Examples:
 
 ```bash
 ./snake-server -port 3000
+./snake-server -world-size 5000 -ai-count 10
+./snake-server -config rules.json
 ```
+
+### Config File
+
+You can use a JSON file to set all gameplay parameters at once. CLI flags override values from the config file.
+
+```json
+{
+  "worldSize": 5000,
+  "foodCount": 1500,
+  "aiCount": 10,
+  "baseSpeed": 4.0,
+  "boostSpeed": 6.5,
+  "turnSpeed": 0.08,
+  "maxBoost": 100,
+  "boostDrain": 0.6,
+  "boostRegen": 0.15,
+  "baseSnakeLen": 10,
+  "killFoodCount": 8,
+  "boundaryMargin": 50,
+  "aiRespawnTicks": 180
+}
+```
+
+Only include the fields you want to change — omitted fields keep their defaults.
 
 ## How to Play
 
