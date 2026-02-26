@@ -121,6 +121,7 @@ type InputMsg struct {
 }
 
 type StatsSnapshot struct {
+	Version        string             `json:"version"`
 	Uptime         string             `json:"uptime"`
 	UptimeSec      int64              `json:"uptimeSec"`
 	TotalJoins     int64              `json:"totalJoins"`
@@ -841,6 +842,7 @@ func (g *Game) buildSnapshot() StatsSnapshot {
 	}
 
 	return StatsSnapshot{
+		Version:        Version,
 		Uptime:         formatDuration(uptime),
 		UptimeSec:      int64(uptime.Seconds()),
 		TotalJoins:     g.totalJoins,

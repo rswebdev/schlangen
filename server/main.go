@@ -10,6 +10,8 @@ import (
 	"os"
 )
 
+const Version = "1.0.0"
+
 //go:embed index.html
 var indexHTML []byte
 
@@ -32,7 +34,7 @@ func main() {
 	flag.Parse()
 
 	log.SetFlags(log.Ldate | log.Ltime)
-	log.Println("Snake.io server starting...")
+	log.Printf("Snake.io server v%s starting...", Version)
 
 	// Build config: defaults → config file → CLI overrides
 	cfg := DefaultConfig()

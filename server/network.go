@@ -63,7 +63,7 @@ func HandleWS(game *Game, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send welcome (JSON, includes world size)
-	welcome := fmt.Sprintf(`{"t":"welcome","pid":%d,"ws":%d}`, id, game.cfg.WorldSize)
+	welcome := fmt.Sprintf(`{"t":"welcome","pid":%d,"ws":%d,"v":"%s"}`, id, game.cfg.WorldSize, Version)
 	conn.WriteMessage(websocket.TextMessage, []byte(welcome))
 	log.Printf("[WS] Welcome sent to player %d (%s)", id, r.RemoteAddr)
 
@@ -588,7 +588,7 @@ const dashboardHTML = `<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1><span><span class="dot"></span>Snake.io Server</span><span id="uptime" style="font-size:14px;font-weight:normal;color:rgba(255,255,255,0.7)"></span></h1>
+<h1><span><span class="dot"></span>Snake.io Server <span id="version" style="font-size:13px;font-weight:normal;color:rgba(255,255,255,0.5)"></span></span><span id="uptime" style="font-size:14px;font-weight:normal;color:rgba(255,255,255,0.7)"></span></h1>
 <div class="grid" id="cards"></div>
 <h2>Leaderboard</h2>
 <table>
@@ -620,6 +620,7 @@ const cardDefs = [
 ];
 function render(d) {
   document.getElementById('uptime').textContent = d.uptime || '';
+  if (d.version) document.getElementById('version').textContent = 'v' + d.version;
   let html = '';
   for (const c of cardDefs) {
     let v = d[c.k];
