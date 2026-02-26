@@ -995,6 +995,7 @@ function isOnUI(target) {
   if (!target) return false;
   if (target.tagName === 'BUTTON' || target.tagName === 'INPUT') return true;
   if (target.closest('#death-screen') || target.closest('#start-screen')) return true;
+  if (target.closest('#pause-screen') || target.closest('#pause-btn')) return true;
   return false;
 }
 
