@@ -108,6 +108,7 @@ type StatsSnapshot struct {
 	MaxTickMs      float64            `json:"maxTickMs"`
 	BandwidthKBps  float64            `json:"bandwidthKBps"`
 	TotalBytesSent int64              `json:"totalBytesSent"`
+	TotalBytesRecv int64              `json:"totalBytesRecv"`
 	Frame          int                `json:"frame"`
 	Leaderboard    []LeaderboardEntry `json:"leaderboard"`
 }
@@ -146,6 +147,7 @@ type Game struct {
 
 	// Bandwidth tracking
 	totalBytesSent int64
+	totalBytesRecv int64 // atomic — written from readPump goroutines
 	bwPerSec       [30]int64 // bytes-per-second ring buffer (last 30s)
 	bwSecIdx       int
 	bwAccum        int64 // bytes accumulated in the current second
@@ -727,6 +729,7 @@ func (g *Game) buildSnapshot() StatsSnapshot {
 		MaxTickMs:      math.Round(g.maxTickMs*100) / 100,
 		BandwidthKBps:  math.Round(bwKBps*100) / 100,
 		TotalBytesSent: g.totalBytesSent,
+		TotalBytesRecv: atomic.LoadInt64(&g.totalBytesRecv),
 		Frame:          g.frame,
 		Leaderboard:    lb,
 	}

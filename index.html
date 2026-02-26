@@ -381,6 +381,7 @@ let ws = null;  // WebSocket connection
 const snakeMeta = new Map(); // playerId -> { name, colorIdx } cached metadata
 let playerInterpBuf = []; // server snapshot buffer for entity interpolation
 let aiInterpBufs = new Map(); // playerId -> [{time, data}] for AI snake interpolation
+let globalSnakeSummary = []; // all alive snakes summary for leaderboard + minimap
 
 // ============================================================
 // TOUCH STATE
@@ -722,10 +723,18 @@ function drawMinimap() {
   minimapCtx.fillStyle='rgba(0,0,0,0.6)'; minimapCtx.fillRect(0,0,mmW,mmH);
   minimapCtx.strokeStyle='rgba(255,50,50,0.4)'; minimapCtx.lineWidth=1;
   minimapCtx.strokeRect(BOUNDARY_MARGIN*sc, BOUNDARY_MARGIN*sc, (WORLD_SIZE-BOUNDARY_MARGIN*2)*sc, (WORLD_SIZE-BOUNDARY_MARGIN*2)*sc);
-  for (const s of aiSnakes) {
-    if (!s.alive) continue;
-    minimapCtx.beginPath(); minimapCtx.arc(s.segments[0].x*sc, s.segments[0].y*sc, 2, 0, Math.PI*2);
-    minimapCtx.fillStyle=s.color.h; minimapCtx.fill();
+  if (netMode === 'client' && globalSnakeSummary.length > 0) {
+    for (const s of globalSnakeSummary) {
+      if (s.playerId === myPlayerId) continue;
+      minimapCtx.beginPath(); minimapCtx.arc(s.headX*sc, s.headY*sc, 2, 0, Math.PI*2);
+      minimapCtx.fillStyle=s.color.h; minimapCtx.fill();
+    }
+  } else {
+    for (const s of aiSnakes) {
+      if (!s.alive) continue;
+      minimapCtx.beginPath(); minimapCtx.arc(s.segments[0].x*sc, s.segments[0].y*sc, 2, 0, Math.PI*2);
+      minimapCtx.fillStyle=s.color.h; minimapCtx.fill();
+    }
   }
   if (player && player.alive) {
     minimapCtx.beginPath(); minimapCtx.arc(player.segments[0].x*sc, player.segments[0].y*sc, 4, 0, Math.PI*2);
@@ -744,12 +753,21 @@ function updateUI() {
   document.getElementById('length-display').textContent = `Length: ${player.segments.length}`;
   document.getElementById('boost-bar').style.width = `${(player.boost/MAX_BOOST)*100}%`;
 
-  const all = player.alive ? [player,...aiSnakes.filter(s=>s.alive)] : aiSnakes.filter(s=>s.alive);
+  let all;
+  if (netMode === 'client' && globalSnakeSummary.length > 0) {
+    all = globalSnakeSummary.map(s => ({
+      name: s.name, score: s.score,
+      isPlayer: s.playerId === myPlayerId,
+    }));
+  } else {
+    all = (player.alive ? [player,...aiSnakes.filter(s=>s.alive)] : aiSnakes.filter(s=>s.alive))
+      .map(s => ({ name: s.name, score: s.score, isPlayer: s === player }));
+  }
   all.sort((a,b) => b.score - a.score);
   let html = '';
   for (let i = 0; i < Math.min(all.length,10); i++) {
-    const s = all[i], self = s === player;
-    html += `<div class="lb-entry${self?' self':''}"><span class="lb-rank">${i+1}.</span><span class="lb-name">${s.name}</span><span class="lb-score">${s.score}</span></div>`;
+    const s = all[i];
+    html += `<div class="lb-entry${s.isPlayer?' self':''}"><span class="lb-rank">${i+1}.</span><span class="lb-name">${s.name}</span><span class="lb-score">${s.score}</span></div>`;
   }
   document.getElementById('lb-entries').innerHTML = html;
 }
@@ -948,6 +966,7 @@ function connectToServer() {
         snakeMeta.clear();
         playerInterpBuf = [];
         aiInterpBufs.clear();
+        globalSnakeSummary = [];
         document.getElementById('start-screen').style.display = 'flex';
         document.getElementById('online-panel').style.display = 'none';
         document.getElementById('start-buttons').style.display = 'flex';
@@ -977,7 +996,9 @@ function deserializeBinaryState(buffer) {
 
   const type = view.getUint8(o++);
   if (type !== 1) return;
-  const hasFood = (view.getUint8(o++) & 1) !== 0;
+  const flagsByte = view.getUint8(o++);
+  const hasFood = (flagsByte & 1) !== 0;
+  const hasSummary = (flagsByte & 2) !== 0;
   const snakeCount = view.getUint16(o); o += 2;
 
   if (!gameRunning) {
@@ -1108,6 +1129,27 @@ function deserializeBinaryState(buffer) {
         pulse: rand(0, Math.PI * 2),
       });
       o += 7;
+    }
+  }
+
+  // Global summary: all alive snakes for leaderboard + minimap (not viewport-filtered)
+  if (hasSummary && o < view.byteLength) {
+    const summaryCount = view.getUint16(o); o += 2;
+    globalSnakeSummary = [];
+    for (let i = 0; i < summaryCount; i++) {
+      const pid = view.getInt16(o); o += 2;
+      const hx = view.getUint16(o); o += 2;
+      const hy = view.getUint16(o); o += 2;
+      const sc = view.getUint16(o); o += 2;
+      const cidx = view.getUint8(o++);
+      const nLen = view.getUint8(o++);
+      const nm = textDecoder.decode(new Uint8Array(buffer, o, nLen));
+      o += nLen;
+      globalSnakeSummary.push({
+        playerId: pid, headX: hx, headY: hy,
+        score: sc, colorIdx: cidx, name: nm,
+        color: SNAKE_COLORS[cidx] || SNAKE_COLORS[0],
+      });
     }
   }
 }

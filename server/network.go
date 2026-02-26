@@ -94,6 +94,7 @@ func (p *Player) readPump(game *Game) {
 		if err != nil {
 			return
 		}
+		atomic.AddInt64(&game.totalBytesRecv, int64(len(data)))
 
 		// Reset read deadline on any message
 		p.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -160,6 +161,7 @@ func (p *Player) writePump() {
 // State serialization (binary protocol - must match client exactly)
 //
 // Header: type(1)=1, flags(1), snakeCount(uint16 BE)
+//   flags: bit0=hasFood, bit1=hasSummary
 // Per snake:
 //   playerId(int16 BE),
 //   flags(uint8: bit0=alive, bit1=boosting, bit2=isPlayer, bit3=hasMeta),
@@ -171,6 +173,10 @@ func (p *Player) writePump() {
 //   foodCount(uint16 BE)
 //   Per food(7 bytes): x(uint16), y(uint16), colorIdx(uint8),
 //                      radius*10(uint8), value*10(uint8)
+// If hasSummary (appended by broadcast):
+//   summaryCount(uint16 BE)
+//   Per alive snake: playerId(int16), headX(uint16), headY(uint16),
+//                    score(uint16), colorIdx(uint8), nameLen(uint8), name[nameLen]
 // ---------------------------------------------------------------------------
 
 func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
@@ -408,22 +414,99 @@ func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood 
 }
 
 // ---------------------------------------------------------------------------
+// Global summary (leaderboard + minimap for ALL alive snakes, not viewport-filtered)
+// ---------------------------------------------------------------------------
+
+func (g *Game) buildSummaryBytes() []byte {
+	var alive []*Snake
+	for _, s := range g.snakes {
+		if s.Alive && len(s.Segments) > 0 {
+			alive = append(alive, s)
+		}
+	}
+
+	// Calculate size: 2 (count) + per snake: 2+2+2+2+1+1+nameLen
+	size := 2
+	for _, s := range alive {
+		size += 2 + 2 + 2 + 2 + 1 + 1 + len(s.Name)
+	}
+
+	buf := make([]byte, size)
+	o := 0
+	binary.BigEndian.PutUint16(buf[o:], uint16(len(alive)))
+	o += 2
+
+	for _, s := range alive {
+		binary.BigEndian.PutUint16(buf[o:], uint16(int16(s.PlayerID)))
+		o += 2
+
+		hx := int(math.Round(s.Segments[0].X))
+		if hx < 0 {
+			hx = 0
+		}
+		if hx > 65535 {
+			hx = 65535
+		}
+		hy := int(math.Round(s.Segments[0].Y))
+		if hy < 0 {
+			hy = 0
+		}
+		if hy > 65535 {
+			hy = 65535
+		}
+		binary.BigEndian.PutUint16(buf[o:], uint16(hx))
+		o += 2
+		binary.BigEndian.PutUint16(buf[o:], uint16(hy))
+		o += 2
+
+		score := s.Score
+		if score > 65535 {
+			score = 65535
+		}
+		binary.BigEndian.PutUint16(buf[o:], uint16(score))
+		o += 2
+
+		buf[o] = byte(s.ColorIdx)
+		o++
+
+		nameBytes := []byte(s.Name)
+		buf[o] = byte(len(nameBytes))
+		o++
+		copy(buf[o:], nameBytes)
+		o += len(nameBytes)
+	}
+
+	return buf[:o]
+}
+
+// ---------------------------------------------------------------------------
 // Broadcast (called from game loop goroutine)
 // ---------------------------------------------------------------------------
 
 func (g *Game) broadcast(includeFood bool) {
+	summaryBytes := g.buildSummaryBytes()
+
 	for _, p := range g.players {
 		if p.snake == nil {
 			continue
 		}
+		oldKnown := p.knownSnakes
 		data := g.serializeStateFor(p, includeFood)
-		n := int64(len(data))
+
+		// Append global summary and set hasSummary flag (bit 1)
+		full := make([]byte, len(data)+len(summaryBytes))
+		copy(full, data)
+		copy(full[len(data):], summaryBytes)
+		full[1] |= 2 // flags bit 1 = hasSummary
+
+		n := int64(len(full))
 		select {
-		case p.sendCh <- data:
+		case p.sendCh <- full:
 			g.totalBytesSent += n
 			g.bwAccum += n
 		default:
-			// Buffer full, drop frame for this player
+			// Buffer full, drop frame — restore knownSnakes so metadata is resent
+			p.knownSnakes = oldKnown
 		}
 	}
 }
@@ -524,6 +607,7 @@ const cardDefs = [
   {k:'maxTickMs',      label:'Max Tick',       unit:'ms', perf:true},
   {k:'bandwidthKBps',  label:'Bandwidth Out',  unit:'KB/s', perf:true, fmt:fmtBw},
   {k:'totalBytesSent', label:'Total Sent',     unit:'', perf:true, fmt:fmtBytes},
+  {k:'totalBytesRecv', label:'Total Received', unit:'', perf:true, fmt:fmtBytes},
 ];
 function render(d) {
   document.getElementById('uptime').textContent = d.uptime || '';
