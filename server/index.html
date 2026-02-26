@@ -486,6 +486,7 @@ const STICK_RADIUS = 70;    // half of base size (140/2)
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function randInt(min, max) { return Math.floor(rand(min, max)); }
 function dist(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
+function distSq(x1, y1, x2, y2) { return (x2-x1)**2 + (y2-y1)**2; }
 function angleTo(x1, y1, x2, y2) { return Math.atan2(y2-y1, x2-x1); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
@@ -584,25 +585,105 @@ function respawnAI(snake) {
 // ============================================================
 // AI
 // ============================================================
+function checkEncircled(snake) {
+  const head = snake.segments[0];
+  let blocked = 0;
+  let bestAngle = 0;
+  let bestClearDist = 0;
+  const all = player && player.alive ? [player,...aiSnakes] : aiSnakes;
+
+  for (let i = 0; i < 8; i++) {
+    const rayAngle = i * Math.PI / 4;
+    let rayBlocked = false;
+
+    for (const rd of [80, 140, 200]) {
+      const rx = head.x + Math.cos(rayAngle) * rd;
+      const ry = head.y + Math.sin(rayAngle) * rd;
+
+      for (const o of all) {
+        if (o === snake || !o.alive) continue;
+        for (let k = 0; k < o.segments.length; k += 4) {
+          if (distSq(rx, ry, o.segments[k].x, o.segments[k].y) < 900) {
+            rayBlocked = true;
+            break;
+          }
+        }
+        if (rayBlocked) break;
+      }
+      if (rayBlocked) break;
+    }
+
+    if (rayBlocked) {
+      blocked++;
+    } else {
+      if (bestClearDist === 0) {
+        bestAngle = rayAngle;
+        bestClearDist = 200;
+      }
+    }
+  }
+  return { encircled: blocked >= 5, angle: bestAngle };
+}
+
+function safeWanderAngle(head) {
+  for (let attempts = 0; attempts < 8; attempts++) {
+    const angle = rand(0, Math.PI * 2);
+    const testX = head.x + Math.cos(angle) * 400;
+    const testY = head.y + Math.sin(angle) * 400;
+    if (testX > 200 && testX < WORLD_SIZE - 200 && testY > 200 && testY < WORLD_SIZE - 200) {
+      return angle;
+    }
+  }
+  return angleTo(head.x, head.y, WORLD_SIZE / 2, WORLD_SIZE / 2);
+}
+
 function updateAI(snake) {
   if (!snake.alive) return;
   snake.aiStateTimer--;
   const head = snake.segments[0];
 
-  if (head.x < 300 || head.x > WORLD_SIZE-300 || head.y < 300 || head.y > WORLD_SIZE-300) {
-    snake.aiState = 'flee_boundary'; snake.aiStateTimer = 30;
+  // Check for encirclement every 30 frames
+  if (frameCount % 30 === 0) {
+    const result = checkEncircled(snake);
+    if (result.encircled) {
+      snake.aiState = 'escape';
+      snake.aiStateTimer = 45;
+      snake.aiTargetAngle = result.angle;
+    }
   }
+
+  // Near boundary → flee (proportional duration based on proximity)
+  const edgeDist = Math.min(
+    Math.min(head.x, WORLD_SIZE - head.x),
+    Math.min(head.y, WORLD_SIZE - head.y)
+  );
+  if (edgeDist < 300 && snake.aiState !== 'escape') {
+    snake.aiState = 'flee';
+    snake.aiStateTimer = edgeDist < 150 ? 60 : 30;
+  }
+
+  // State transition (boundary-aware)
   if (snake.aiStateTimer <= 0) {
-    const r = Math.random();
-    if (r < 0.5) { snake.aiState = 'seek_food'; snake.aiStateTimer = randInt(60,180); }
-    else if (r < 0.8) { snake.aiState = 'wander'; snake.aiStateTimer = randInt(60,150); snake.aiTargetAngle = rand(0, Math.PI*2); }
-    else { snake.aiState = 'hunt'; snake.aiStateTimer = randInt(90,200); }
+    if (edgeDist < 500) {
+      snake.aiState = 'seek_food';
+      snake.aiStateTimer = 90;
+    } else {
+      const r = Math.random();
+      if (r < 0.5) { snake.aiState = 'seek_food'; snake.aiStateTimer = randInt(60,180); }
+      else if (r < 0.8) { snake.aiState = 'wander'; snake.aiStateTimer = randInt(60,150); snake.aiTargetAngle = safeWanderAngle(head); }
+      else { snake.aiState = 'hunt'; snake.aiStateTimer = randInt(90,200); }
+    }
   }
 
   switch (snake.aiState) {
-    case 'flee_boundary':
-      snake.targetAngle = angleTo(head.x, head.y, WORLD_SIZE/2, WORLD_SIZE/2) + rand(-0.3,0.3);
-      snake.isBoosting = true; break;
+    case 'flee':
+      snake.targetAngle = angleTo(head.x, head.y, WORLD_SIZE/2, WORLD_SIZE/2);
+      snake.isBoosting = edgeDist < 200;
+      break;
+    case 'escape':
+      snake.targetAngle = snake.aiTargetAngle;
+      snake.isBoosting = snake.boost > 10;
+      break;
     case 'seek_food': {
       let closest = null, cd = 400;
       for (const f of foods) { const d = dist(head.x,head.y,f.x,f.y); if (d < cd) { cd = d; closest = f; } }
@@ -625,23 +706,25 @@ function updateAI(snake) {
       } else snake.aiState = 'wander';
       break;
     }
-    default:
+    default: // wander
       if (frameCount % 60 === 0) snake.aiTargetAngle += rand(-0.8,0.8);
       snake.targetAngle = snake.aiTargetAngle;
       snake.isBoosting = false; break;
   }
 
+  // Collision avoidance (increased range and scan depth)
   const all = player && player.alive ? [player,...aiSnakes] : aiSnakes;
   for (const o of all) {
     if (o === snake || !o.alive) continue;
-    for (let i = 0; i < Math.min(o.segments.length,40); i += 2) {
+    const lim = Math.min(o.segments.length, 60);
+    for (let i = 0; i < lim; i += 2) {
       const seg = o.segments[i];
       const d = dist(head.x, head.y, seg.x, seg.y);
-      const ad = getSnakeBodyRadius(o) + getSnakeHeadRadius(snake) + 30;
+      const ad = getSnakeBodyRadius(o) + getSnakeHeadRadius(snake) + 60;
       if (d < ad) {
         snake.targetAngle = angleTo(seg.x, seg.y, head.x, head.y);
         snake.isBoosting = d < ad * 0.6 && snake.boost > 20;
-        break;
+        return;
       }
     }
   }
