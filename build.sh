@@ -72,9 +72,11 @@ build_mobile() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleExecutable</key><string>Mobile</string>
     <key>CFBundleIdentifier</key><string>snake.io.Mobile</string>
     <key>CFBundleName</key><string>Mobile</string>
     <key>CFBundleVersion</key><string>1.0.0</string>
+    <key>CFBundlePackageType</key><string>FMWK</string>
     <key>MinimumOSVersion</key><string>16.0</string>
 </dict>
 </plist>
@@ -102,9 +104,11 @@ PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleExecutable</key><string>Mobile</string>
     <key>CFBundleIdentifier</key><string>snake.io.Mobile</string>
     <key>CFBundleName</key><string>Mobile</string>
     <key>CFBundleVersion</key><string>1.0.0</string>
+    <key>CFBundlePackageType</key><string>FMWK</string>
     <key>MinimumOSVersion</key><string>16.0</string>
 </dict>
 </plist>
