@@ -44,11 +44,13 @@ var upgrader = websocket.Upgrader{
 // ---------------------------------------------------------------------------
 
 func HandleWS(game *Game, w http.ResponseWriter, r *http.Request) {
+	log.Printf("[WS] HTTP upgrade request from %s", r.RemoteAddr)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
+	log.Printf("[WS] Upgrade complete for %s", r.RemoteAddr)
 
 	id := nextPlayerID()
 	p := &Player{
@@ -63,6 +65,7 @@ func HandleWS(game *Game, w http.ResponseWriter, r *http.Request) {
 	// Send welcome (JSON, includes world size)
 	welcome := fmt.Sprintf(`{"t":"welcome","pid":%d,"ws":%d}`, id, WorldSize)
 	conn.WriteMessage(websocket.TextMessage, []byte(welcome))
+	log.Printf("[WS] Welcome sent to player %d (%s)", id, r.RemoteAddr)
 
 	// Start writer
 	go p.writePump()

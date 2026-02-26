@@ -55,6 +55,11 @@ func main() {
 		HandleStats(game, w, r)
 	})
 	http.HandleFunc("/dashboard", HandleDashboard)
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", *port)
 	log.Printf("Listening on http://%s", addr)

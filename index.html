@@ -934,58 +934,116 @@ function connectToServer() {
   document.getElementById('online-status').textContent = 'Connecting...';
   document.getElementById('connect-btn').disabled = true;
 
-  try {
-    ws = new WebSocket(url);
-    ws.binaryType = 'arraybuffer';
+  // Derive HTTP base URL from ws:// URL for connectivity check
+  const httpBase = url.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://').replace(/\/ws$/, '');
 
-    ws.onopen = () => {
-      document.getElementById('online-status').textContent = 'Connected! Joining game...';
-    };
+  // Fire /ping in parallel as fast-fail connectivity check (reuses existing TCP — not a prewarm)
+  let reachable = null; // null = pending, true = ok, false = failed
+  fetch(httpBase + '/ping').then(() => { reachable = true; }).catch(() => { reachable = false; });
 
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.t === 'welcome') {
-            myPlayerId = msg.pid;
-            if (msg.ws) WORLD_SIZE = msg.ws;
-            playerName = document.getElementById('player-name').value.trim() || 'Player';
-            ws.send(JSON.stringify({ t: 'join', name: playerName }));
+  // Start WebSocket immediately (don't wait for /ping)
+  wsConnect(url, () => reachable);
+}
+
+function wsConnect(url, getReachable) {
+  let retried = false;
+  const connectStart = performance.now();
+
+  const timerInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.CONNECTING) {
+      const sec = ((performance.now() - connectStart) / 1000).toFixed(1);
+      document.getElementById('online-status').textContent =
+        'Connecting... (' + sec + 's)' + (retried ? ' retry' : '');
+    }
+  }, 500);
+
+  function cleanup() { clearInterval(timerInterval); }
+
+  function attempt() {
+    try {
+      ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+
+      // Generous timeout: iOS Safari TCP to local network can take 10-30s
+      const connectTimeout = setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+          const reachable = getReachable();
+          if (reachable === false) {
+            // /ping failed — server isn't reachable at all
+            cleanup();
+            document.getElementById('online-status').textContent = 'Cannot reach server. Check address and try again.';
+            document.getElementById('connect-btn').disabled = false;
+            ws = null;
+          } else if (!retried) {
+            retried = true;
+            attempt();
+          } else {
+            cleanup();
+            document.getElementById('online-status').textContent = 'Connection timed out. Check address and try again.';
+            document.getElementById('connect-btn').disabled = false;
+            ws = null;
           }
-        } catch (err) {}
-      } else {
-        deserializeBinaryState(ev.data);
-      }
-    };
+        }
+      }, 15000);
 
-    ws.onclose = () => {
-      if (gameRunning && netMode === 'client') {
-        gameRunning = false;
-        netMode = 'solo';
-        ws = null;
-        snakeMeta.clear();
-        playerInterpBuf = [];
-        aiInterpBufs.clear();
-        globalSnakeSummary = [];
-        document.getElementById('start-screen').style.display = 'flex';
-        document.getElementById('online-panel').style.display = 'none';
-        document.getElementById('start-buttons').style.display = 'flex';
-        document.getElementById('online-status').textContent = 'Disconnected from server.';
+      ws.onopen = () => {
+        clearTimeout(connectTimeout);
+        cleanup();
+        document.getElementById('online-status').textContent = 'Connected! Joining game...';
+      };
+
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.t === 'welcome') {
+              myPlayerId = msg.pid;
+              if (msg.ws) WORLD_SIZE = msg.ws;
+              playerName = document.getElementById('player-name').value.trim() || 'Player';
+              ws.send(JSON.stringify({ t: 'join', name: playerName }));
+            }
+          } catch (err) {}
+        } else {
+          deserializeBinaryState(ev.data);
+        }
+      };
+
+      ws.onclose = () => {
+        clearTimeout(connectTimeout);
+        cleanup();
+        if (gameRunning && netMode === 'client') {
+          gameRunning = false;
+          netMode = 'solo';
+          ws = null;
+          snakeMeta.clear();
+          playerInterpBuf = [];
+          aiInterpBufs.clear();
+          globalSnakeSummary = [];
+          document.getElementById('start-screen').style.display = 'flex';
+          document.getElementById('online-panel').style.display = 'none';
+          document.getElementById('start-buttons').style.display = 'flex';
+          document.getElementById('online-status').textContent = 'Disconnected from server.';
+          document.getElementById('connect-btn').disabled = false;
+          WORLD_SIZE = 5000;
+        }
+      };
+
+      ws.onerror = () => {
+        clearTimeout(connectTimeout);
+        cleanup();
+        document.getElementById('online-status').textContent = 'Connection failed. Check the address and try again.';
         document.getElementById('connect-btn').disabled = false;
-        WORLD_SIZE = 5000;
-      }
-    };
-
-    ws.onerror = () => {
-      document.getElementById('online-status').textContent = 'Connection failed. Check the address and try again.';
+        ws = null;
+      };
+    } catch (e) {
+      cleanup();
+      document.getElementById('online-status').textContent = 'Invalid address. Check and try again.';
       document.getElementById('connect-btn').disabled = false;
       ws = null;
-    };
-  } catch (e) {
-    document.getElementById('online-status').textContent = 'Invalid address. Check and try again.';
-    document.getElementById('connect-btn').disabled = false;
-    ws = null;
+    }
   }
+  attempt();
 }
 
 const textDecoder = new TextDecoder();
