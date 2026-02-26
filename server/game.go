@@ -31,7 +31,7 @@ const (
 	KillFoodCount  = 8
 	BoundaryMargin = 50.0
 	TickRate       = 60
-	NetTickRate    = 4
+	NetTickRate    = 2
 	FoodSyncRate   = 3
 	ViewDist       = 2500.0
 	NumColors      = 12

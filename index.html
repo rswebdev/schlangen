@@ -368,6 +368,9 @@ let mouseY = window.innerHeight / 2;
 let boosting = false;
 let playerName = 'Player';
 let frameCount = 0;
+let lastTimestamp = 0;
+let soloAccum = 0;
+const SOLO_TICK_MS = 1000 / 60;
 
 // ============================================================
 // NETWORK STATE
@@ -1116,6 +1119,8 @@ function sendClientInput() {
   if (player.alive) {
     if (hasJoystickInput) {
       angle = joystickAngle;
+    } else if (isTouchDevice) {
+      angle = joystickAngle;
     } else {
       const head = player.segments[0];
       angle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
@@ -1171,16 +1176,16 @@ function interpolateSnake(buf, renderTime) {
 // ============================================================
 // GAME LOOP
 // ============================================================
-function gameLoop() {
-  if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
-  frameCount++;
+function gameLoop(timestamp) {
+  if (!gameRunning) { lastTimestamp = 0; requestAnimationFrame(gameLoop); return; }
 
   // CLIENT MODE: interpolate between server snapshots for smooth 60fps
   if (netMode === 'client') {
+    frameCount++;
     sendClientInput();
 
     const now = performance.now();
-    const renderDelay = 80; // ms - slightly more than one server tick (66ms)
+    const renderDelay = 50; // ms - slightly more than one server tick (33ms at 30Hz)
     const renderTime = now - renderDelay;
 
     // Entity interpolation for player snake
@@ -1220,24 +1225,37 @@ function gameLoop() {
     return;
   }
 
-  if (player && player.alive) {
-    if (hasJoystickInput) {
-      // Touch: use joystick angle directly
-      player.targetAngle = joystickAngle;
-    } else {
-      // Desktop mouse: steer toward cursor
-      const head = player.segments[0];
-      player.targetAngle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
+  // SOLO MODE: fixed 60Hz timestep (decoupled from display refresh rate)
+  if (lastTimestamp === 0) lastTimestamp = timestamp;
+  let delta = timestamp - lastTimestamp;
+  lastTimestamp = timestamp;
+  if (delta > 200) delta = 200; // cap after tab switch
+
+  soloAccum += delta;
+  while (soloAccum >= SOLO_TICK_MS) {
+    soloAccum -= SOLO_TICK_MS;
+    frameCount++;
+
+    if (player && player.alive) {
+      if (hasJoystickInput) {
+        player.targetAngle = joystickAngle;
+      } else if (isTouchDevice) {
+        player.targetAngle = joystickAngle;
+      } else {
+        const head = player.segments[0];
+        player.targetAngle = Math.atan2(mouseY - (head.y - camera.y), mouseX - (head.x - camera.x));
+      }
+      player.isBoosting = boosting;
     }
-    player.isBoosting = boosting;
+
+    if (player && player.alive) { updateSnake(player); checkFoodCollision(player); }
+    for (const ai of aiSnakes) { if (ai.alive) { updateAI(ai); updateSnake(ai); checkFoodCollision(ai); } }
+    checkSnakeCollisions();
+    updateParticles();
+    while (foods.length < FOOD_COUNT) spawnFood();
   }
 
-  if (player && player.alive) { updateSnake(player); checkFoodCollision(player); }
-  for (const ai of aiSnakes) { if (ai.alive) { updateAI(ai); updateSnake(ai); checkFoodCollision(ai); } }
-  checkSnakeCollisions();
-  updateParticles();
   updateCamera();
-  while (foods.length < FOOD_COUNT) spawnFood();
 
   // Render
   ctx.fillStyle = '#0a0a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1284,6 +1302,8 @@ function startGame() {
     aiSnakes.push(ai);
   }
   particles = [];
+  lastTimestamp = 0;
+  soloAccum = 0;
   gameRunning = true;
 }
 
