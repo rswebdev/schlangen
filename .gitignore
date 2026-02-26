@@ -1,0 +1,14 @@
+# Binaries
+server/snake-server
+
+# Generated Xcode project (regenerate with: cd appletv/SnakeTV && xcodegen)
+appletv/SnakeTV/SnakeTV.xcodeproj/
+
+# gomobile framework (regenerate with: ./build.sh mobile)
+appletv/Frameworks/
+
+# Go build cache
+*.test
+
+# macOS
+.DS_Store
