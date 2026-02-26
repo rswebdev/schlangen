@@ -32,8 +32,9 @@ const (
 	BoundaryMargin = 50.0
 	TickRate       = 60
 	NetTickRate    = 2
-	FoodSyncRate   = 3
+	FoodSyncRate   = 9
 	ViewDist       = 2500.0
+	FoodViewDist   = 1200.0
 	NumColors      = 12
 	NumFoodColors  = 12
 	AIRespawnTicks = 180 // 3 seconds
@@ -771,7 +772,8 @@ func (g *Game) tick() {
 	if g.frame%NetTickRate == 0 {
 		g.netTick++
 		includeFood := g.netTick%FoodSyncRate == 0
-		g.broadcast(includeFood)
+		includeSummary := g.netTick%2 == 0
+		g.broadcast(includeFood, includeSummary)
 	}
 
 	// Track tick performance

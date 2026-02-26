@@ -1108,13 +1108,17 @@ function deserializeBinaryState(buffer) {
       o += 4;
     }
 
-    // Interpolate to restore smooth body
+    // Interpolate to restore smooth body (server sends every 3rd segment)
     const segs = [];
     for (let i = 0; i < sparse.length - 1; i++) {
       segs.push(sparse[i]);
       segs.push({
-        x: (sparse[i].x + sparse[i+1].x) * 0.5,
-        y: (sparse[i].y + sparse[i+1].y) * 0.5,
+        x: sparse[i].x * 2/3 + sparse[i+1].x * 1/3,
+        y: sparse[i].y * 2/3 + sparse[i+1].y * 1/3,
+      });
+      segs.push({
+        x: sparse[i].x * 1/3 + sparse[i+1].x * 2/3,
+        y: sparse[i].y * 1/3 + sparse[i+1].y * 2/3,
       });
     }
     if (sparse.length > 0) segs.push(sparse[sparse.length - 1]);

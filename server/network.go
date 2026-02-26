@@ -171,7 +171,7 @@ func (p *Player) writePump() {
 //   [if hasMeta: nameLen(uint8), name[nameLen], colorIdx(uint8)],
 //   score(uint16 BE), angle*10000(int16 BE), boost(uint8),
 //   targetLen(uint16 BE), invTimer(uint8),
-//   segCount(uint16 BE), segments[segCount * 4](uint16 x + uint16 y, BE)
+//   segCount(uint16 BE), segments[segCount * 4](uint16 x + uint16 y, BE) — every 3rd segment
 // If hasFood:
 //   foodCount(uint16 BE)
 //   Per food(7 bytes): x(uint16), y(uint16), colorIdx(uint8),
@@ -231,7 +231,7 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 	var visibleFood []*Food
 	if includeFood {
 		for _, f := range g.foods {
-			if math.Abs(f.X-cx) < ViewDist && math.Abs(f.Y-cy) < ViewDist {
+			if math.Abs(f.X-cx) < FoodViewDist && math.Abs(f.Y-cy) < FoodViewDist {
 				visibleFood = append(visibleFood, f)
 			}
 		}
@@ -244,7 +244,7 @@ func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood 
 	// Calculate buffer size
 	size := 4 // header
 	for i, s := range snakes {
-		segCount := (len(s.Segments) + 1) / 2 // ceil(n/2)
+		segCount := (len(s.Segments) + 2) / 3 // ceil(n/3)
 		// playerId(2) + flags(1) + score(2) + angle(2) + boost(1) + targetLen(2) + invTimer(1) + segCount(2) + segs
 		perSnake := 2 + 1 + 2 + 2 + 1 + 2 + 1 + 2 + segCount*4
 		if hasMeta == nil || hasMeta[i] {
@@ -347,11 +347,11 @@ func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood 
 		buf[o] = byte(inv)
 		o++
 
-		// Segments (every 2nd)
-		segCount := (len(s.Segments) + 1) / 2
+		// Segments (every 3rd)
+		segCount := (len(s.Segments) + 2) / 3
 		binary.BigEndian.PutUint16(buf[o:], uint16(segCount))
 		o += 2
-		for j := 0; j < len(s.Segments); j += 2 {
+		for j := 0; j < len(s.Segments); j += 3 {
 			x := int(math.Round(s.Segments[j].X))
 			y := int(math.Round(s.Segments[j].Y))
 			if x < 0 {
@@ -486,8 +486,11 @@ func (g *Game) buildSummaryBytes() []byte {
 // Broadcast (called from game loop goroutine)
 // ---------------------------------------------------------------------------
 
-func (g *Game) broadcast(includeFood bool) {
-	summaryBytes := g.buildSummaryBytes()
+func (g *Game) broadcast(includeFood bool, includeSummary bool) {
+	var summaryBytes []byte
+	if includeSummary {
+		summaryBytes = g.buildSummaryBytes()
+	}
 
 	for _, p := range g.players {
 		if p.snake == nil {
@@ -497,14 +500,17 @@ func (g *Game) broadcast(includeFood bool) {
 		data := g.serializeStateFor(p, includeFood)
 
 		// Append global summary and set hasSummary flag (bit 1)
-		full := make([]byte, len(data)+len(summaryBytes))
-		copy(full, data)
-		copy(full[len(data):], summaryBytes)
-		full[1] |= 2 // flags bit 1 = hasSummary
+		if includeSummary && len(summaryBytes) > 0 {
+			full := make([]byte, len(data)+len(summaryBytes))
+			copy(full, data)
+			copy(full[len(data):], summaryBytes)
+			full[1] |= 2 // flags bit 1 = hasSummary
+			data = full
+		}
 
-		n := int64(len(full))
+		n := int64(len(data))
 		select {
-		case p.sendCh <- full:
+		case p.sendCh <- data:
 			g.totalBytesSent += n
 			g.bwAccum += n
 		default:
