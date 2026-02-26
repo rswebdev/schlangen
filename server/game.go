@@ -399,33 +399,62 @@ func (g *Game) updateAI(s *Snake) {
 	head := s.Segments[0]
 	ws := float64(g.cfg.WorldSize)
 
-	// Near boundary → flee
-	if head.X < 300 || head.X > ws-300 || head.Y < 300 || head.Y > ws-300 {
-		s.AIState = "flee"
-		s.AIStateTimer = 30
+	// Check for encirclement every 30 frames
+	if g.frame%30 == 0 {
+		if encircled, escapeAngle := g.checkEncircled(s); encircled {
+			s.AIState = "escape"
+			s.AIStateTimer = 45
+			s.AITargetAngle = escapeAngle
+		}
 	}
 
-	// State transition
+	// Near boundary → flee (proportional duration based on proximity)
+	edgeDist := math.Min(
+		math.Min(head.X, ws-head.X),
+		math.Min(head.Y, ws-head.Y),
+	)
+	if edgeDist < 300 && s.AIState != "escape" {
+		s.AIState = "flee"
+		if edgeDist < 150 {
+			s.AIStateTimer = 60
+		} else {
+			s.AIStateTimer = 30
+		}
+	}
+
+	// State transition (boundary-aware)
 	if s.AIStateTimer <= 0 {
-		r := rand.Float64()
-		switch {
-		case r < 0.5:
+		// If still near boundary after flee, force food-seeking (steers inward)
+		if edgeDist < 500 {
 			s.AIState = "food"
-			s.AIStateTimer = 60 + rand.Intn(120)
-		case r < 0.8:
-			s.AIState = "wander"
-			s.AIStateTimer = 60 + rand.Intn(90)
-			s.AITargetAngle = rand.Float64() * math.Pi * 2
-		default:
-			s.AIState = "hunt"
-			s.AIStateTimer = 90 + rand.Intn(110)
+			s.AIStateTimer = 90
+		} else {
+			r := rand.Float64()
+			switch {
+			case r < 0.5:
+				s.AIState = "food"
+				s.AIStateTimer = 60 + rand.Intn(120)
+			case r < 0.8:
+				s.AIState = "wander"
+				s.AIStateTimer = 60 + rand.Intn(90)
+				s.AITargetAngle = g.safeWanderAngle(head, ws)
+			default:
+				s.AIState = "hunt"
+				s.AIStateTimer = 90 + rand.Intn(110)
+			}
 		}
 	}
 
 	switch s.AIState {
 	case "flee":
-		s.TargetAngle = math.Atan2(ws/2-head.Y, ws/2-head.X) + rand.Float64()*0.6 - 0.3
-		s.IsBoosting = true
+		// Steer toward center, no random jitter near corners
+		s.TargetAngle = math.Atan2(ws/2-head.Y, ws/2-head.X)
+		s.IsBoosting = edgeDist < 200
+
+	case "escape":
+		// Boost toward the clearest escape direction
+		s.TargetAngle = s.AITargetAngle
+		s.IsBoosting = s.Boost > 10
 
 	case "food":
 		var closest *Food
@@ -476,26 +505,91 @@ func (g *Game) updateAI(s *Snake) {
 		s.IsBoosting = false
 	}
 
-	// Collision avoidance
+	// Collision avoidance (increased range and scan depth)
 	for _, o := range g.snakes {
 		if o == s || !o.Alive {
 			continue
 		}
 		lim := len(o.Segments)
-		if lim > 40 {
-			lim = 40
+		if lim > 60 {
+			lim = 60
 		}
 		for k := 0; k < lim; k += 2 {
 			seg := o.Segments[k]
 			d := dist(head.X, head.Y, seg.X, seg.Y)
-			ad := bodyRadius(o) + headRadius(s) + 30
+			ad := bodyRadius(o) + headRadius(s) + 60
 			if d < ad {
 				s.TargetAngle = math.Atan2(head.Y-seg.Y, head.X-seg.X)
 				s.IsBoosting = d < ad*0.6 && s.Boost > 20
-				return // break both loops
+				return
 			}
 		}
 	}
+}
+
+// checkEncircled casts 8 rays outward from the snake's head to detect
+// if it's being surrounded. Returns true + the best escape angle if
+// 5 or more rays are blocked by other snakes' body segments.
+func (g *Game) checkEncircled(s *Snake) (bool, float64) {
+	head := s.Segments[0]
+	blocked := 0
+	bestAngle := 0.0
+	bestClearDist := 0.0
+
+	for i := 0; i < 8; i++ {
+		rayAngle := float64(i) * math.Pi / 4
+		rayBlocked := false
+
+		for _, rd := range []float64{80, 140, 200} {
+			rx := head.X + math.Cos(rayAngle)*rd
+			ry := head.Y + math.Sin(rayAngle)*rd
+
+			for _, o := range g.snakes {
+				if o == s || !o.Alive {
+					continue
+				}
+				step := 4
+				for k := 0; k < len(o.Segments); k += step {
+					if distSq(rx, ry, o.Segments[k].X, o.Segments[k].Y) < 900 {
+						rayBlocked = true
+						break
+					}
+				}
+				if rayBlocked {
+					break
+				}
+			}
+			if rayBlocked {
+				break
+			}
+		}
+
+		if rayBlocked {
+			blocked++
+		} else {
+			// Track the clearest escape direction (furthest clear ray)
+			if bestClearDist == 0 {
+				bestAngle = rayAngle
+				bestClearDist = 200
+			}
+		}
+	}
+	return blocked >= 5, bestAngle
+}
+
+// safeWanderAngle picks a random wander angle that doesn't point toward
+// a nearby wall (within 500 units).
+func (g *Game) safeWanderAngle(head Vec2, ws float64) float64 {
+	for attempts := 0; attempts < 8; attempts++ {
+		angle := rand.Float64() * math.Pi * 2
+		testX := head.X + math.Cos(angle)*400
+		testY := head.Y + math.Sin(angle)*400
+		if testX > 200 && testX < ws-200 && testY > 200 && testY < ws-200 {
+			return angle
+		}
+	}
+	// Fallback: steer toward center
+	return math.Atan2(ws/2-head.Y, ws/2-head.X)
 }
 
 // ---------------------------------------------------------------------------
