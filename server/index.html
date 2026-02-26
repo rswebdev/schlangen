@@ -210,6 +210,19 @@
   .conn-btn.secondary { background: rgba(255,255,255,0.12); }
   .conn-btn:hover { filter: brightness(1.1); }
   .conn-btn-row { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
+
+  /* ---- Help Panel ---- */
+  #help-panel {
+    width: 340px; max-width: 90vw; text-align: left;
+    max-height: 60vh; overflow-y: auto;
+    padding: 0 4px;
+  }
+  #help-panel h3 { color: #00cc88; font-size: 14px; margin: 14px 0 4px; }
+  #help-panel h3:first-child { margin-top: 0; }
+  #help-panel p {
+    color: rgba(255,255,255,0.7); font-size: 13px;
+    line-height: 1.5; margin-bottom: 6px;
+  }
 </style>
 </head>
 <body>
@@ -221,6 +234,36 @@
   <div id="start-buttons">
     <button id="solo-btn">Solo Play</button>
     <button id="online-btn">Online Play</button>
+    <button id="help-btn" style="background:rgba(255,255,255,0.12)">How to Play</button>
+  </div>
+  <div id="help-panel" style="display:none">
+    <h3>Goal</h3>
+    <p>Eat glowing food dots to grow longer. Avoid crashing your head into other
+       snakes' bodies &mdash; if you do, you die and drop food for others.</p>
+    <h3>Controls</h3>
+    <p><b>Desktop:</b> Move the mouse to steer. Click or hold Space to boost.</p>
+    <p><b>Mobile:</b> Touch and drag anywhere to steer with the virtual joystick.
+       Tap the BOOST button to speed up.</p>
+    <h3>Boosting</h3>
+    <p>Boosting makes you faster but drains your boost meter (the green bar at the
+       bottom) and shortens your tail, dropping food behind you. The meter
+       regenerates when you stop boosting. You need at least 12 segments to boost.</p>
+    <h3>Killing</h3>
+    <p>You can't kill snakes by chasing them &mdash; only their head is vulnerable.
+       Trick other snakes into running into your body. When you get a kill,
+       you receive 30% of their length as bonus score.</p>
+    <h3>Spawn Protection</h3>
+    <p>You spawn with brief invincibility (your snake flashes). Use this time to
+       get away from danger.</p>
+    <h3>The Boundary</h3>
+    <p>The red dashed border at the edge of the map is lethal. Hitting it kills
+       you instantly &mdash; steer away when you see the red glow.</p>
+    <h3>Tips</h3>
+    <p>Circle smaller snakes to trap them. Use boost strategically &mdash; the food
+       you drop can lure others into your path. Keep an eye on the minimap.</p>
+    <div class="conn-btn-row">
+      <button class="conn-btn secondary" id="help-back-btn">Back</button>
+    </div>
   </div>
   <div id="online-panel" style="display:none">
     <div id="online-status" class="conn-status">Enter server address:</div>
@@ -1438,6 +1481,14 @@ document.getElementById('connect-btn').addEventListener('click', connectToServer
 document.getElementById('server-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectToServer(); });
 document.getElementById('online-back-btn').addEventListener('click', () => {
   document.getElementById('online-panel').style.display = 'none';
+  document.getElementById('start-buttons').style.display = 'flex';
+});
+document.getElementById('help-btn').addEventListener('click', () => {
+  document.getElementById('start-buttons').style.display = 'none';
+  document.getElementById('help-panel').style.display = 'block';
+});
+document.getElementById('help-back-btn').addEventListener('click', () => {
+  document.getElementById('help-panel').style.display = 'none';
   document.getElementById('start-buttons').style.display = 'flex';
 });
 document.getElementById('player-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startGame(); });
