@@ -135,6 +135,37 @@ struct DashboardView: View {
                     StatCard(label: "Total Kills", value: "\(server.stats.totalKills)", color: .red)
                 }
 
+                // Runtime / performance stats
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible()),
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ], spacing: 12) {
+                    StatCard(
+                        label: "Memory",
+                        value: String(format: "%.1f", server.stats.memAllocMB),
+                        subtitle: String(format: "/ %.0f MB", server.stats.memSysMB),
+                        color: .cyan
+                    )
+                    StatCard(
+                        label: "Goroutines",
+                        value: "\(server.stats.numGoroutines)",
+                        color: .mint
+                    )
+                    StatCard(
+                        label: "GC Pause",
+                        value: String(format: "%.2f", server.stats.gcPauseMs),
+                        subtitle: "ms",
+                        color: .teal
+                    )
+                    StatCard(
+                        label: "Tick Load",
+                        value: String(format: "%.0f%%", min(server.stats.avgTickMs / 16.67 * 100, 999)),
+                        color: tickLoadColor(server.stats.avgTickMs)
+                    )
+                }
+
                 // Leaderboard
                 Text("LEADERBOARD")
                     .font(.caption)
@@ -161,6 +192,7 @@ struct DashboardView: View {
 struct StatCard: View {
     let label: String
     let value: String
+    var subtitle: String? = nil
     let color: Color
 
     var body: some View {
@@ -172,12 +204,24 @@ struct StatCard: View {
             Text(value)
                 .font(.system(size: 36, weight: .bold, design: .rounded))
                 .foregroundColor(color)
+            if let subtitle = subtitle {
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background(Color.gray.opacity(0.15))
         .cornerRadius(12)
     }
+}
+
+private func tickLoadColor(_ avgTickMs: Double) -> Color {
+    let pct = avgTickMs / 16.67 * 100
+    if pct < 50 { return .green }
+    if pct < 80 { return .yellow }
+    return .red
 }
 
 struct LeaderboardRow: View {

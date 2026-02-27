@@ -67,6 +67,10 @@ struct GameStats: Codable {
     var totalJoins: Int64 = 0
     var avgTickMs: Double = 0
     var bandwidthKBps: Double = 0
+    var memAllocMB: Double = 0
+    var memSysMB: Double = 0
+    var numGoroutines: Int = 0
+    var gcPauseMs: Double = 0
     var leaderboard: [LeaderboardEntry] = []
 }
 

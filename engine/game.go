@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"runtime"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -136,6 +137,10 @@ type StatsSnapshot struct {
 	BandwidthKBps  float64            `json:"bandwidthKBps"`
 	TotalBytesSent int64              `json:"totalBytesSent"`
 	TotalBytesRecv int64              `json:"totalBytesRecv"`
+	MemAllocMB     float64            `json:"memAllocMB"`
+	MemSysMB       float64            `json:"memSysMB"`
+	NumGoroutines  int                `json:"numGoroutines"`
+	GCPauseMs      float64            `json:"gcPauseMs"`
 	Frame          int                `json:"frame"`
 	Leaderboard    []LeaderboardEntry `json:"leaderboard"`
 }
@@ -794,6 +799,15 @@ func formatDuration(d time.Duration) string {
 func (g *Game) buildSnapshot() StatsSnapshot {
 	uptime := time.Since(g.startTime)
 
+	// Runtime memory & goroutine stats
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	memAllocMB := float64(memStats.HeapAlloc) / 1024.0 / 1024.0
+	memSysMB := float64(memStats.Sys) / 1024.0 / 1024.0
+	numGoroutines := runtime.NumGoroutine()
+	lastPauseNs := memStats.PauseNs[(memStats.NumGC+255)%256]
+	gcPauseMs := float64(lastPauseNs) / 1e6
+
 	var totalNs int64
 	count := 0
 	for _, d := range g.tickDurations {
@@ -857,6 +871,10 @@ func (g *Game) buildSnapshot() StatsSnapshot {
 		BandwidthKBps:  math.Round(bwKBps*100) / 100,
 		TotalBytesSent: g.totalBytesSent,
 		TotalBytesRecv: atomic.LoadInt64(&g.totalBytesRecv),
+		MemAllocMB:     math.Round(memAllocMB*100) / 100,
+		MemSysMB:       math.Round(memSysMB*100) / 100,
+		NumGoroutines:  numGoroutines,
+		GCPauseMs:      math.Round(gcPauseMs*100) / 100,
 		Frame:          g.frame,
 		Leaderboard:    lb,
 	}

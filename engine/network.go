@@ -610,6 +610,10 @@ const cardDefs = [
   {k:'bandwidthKBps',  label:'Bandwidth Out',  unit:'KB/s', perf:true, fmt:fmtBw},
   {k:'totalBytesSent', label:'Total Sent',     unit:'', perf:true, fmt:fmtBytes},
   {k:'totalBytesRecv', label:'Total Received', unit:'', perf:true, fmt:fmtBytes},
+  {k:'memAllocMB',     label:'Heap Memory',    unit:'MB', perf:true},
+  {k:'memSysMB',       label:'System Memory',  unit:'MB', perf:true},
+  {k:'numGoroutines',  label:'Goroutines',     unit:'',   perf:true},
+  {k:'gcPauseMs',      label:'GC Pause',       unit:'ms', perf:true},
 ];
 function render(d) {
   document.getElementById('uptime').textContent = d.uptime || '';
