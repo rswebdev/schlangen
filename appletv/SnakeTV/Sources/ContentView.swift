@@ -2,12 +2,15 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var server: ServerManager
+    @State private var showHouseRules = false
 
     var body: some View {
         if server.isRunning {
             DashboardView()
+        } else if showHouseRules {
+            HouseRulesView()
         } else {
-            StartView()
+            StartView(showHouseRules: $showHouseRules)
         }
     }
 }
@@ -16,6 +19,7 @@ struct ContentView: View {
 
 struct StartView: View {
     @EnvironmentObject var server: ServerManager
+    @Binding var showHouseRules: Bool
 
     var body: some View {
         VStack(spacing: 40) {
@@ -39,10 +43,10 @@ struct StartView: View {
                     .font(.caption)
             }
 
-            Button(action: { server.startServer() }) {
+            Button(action: { showHouseRules = true }) {
                 HStack(spacing: 12) {
                     Image(systemName: "play.fill")
-                    Text("Start Server")
+                    Text("Start Game")
                 }
                 .font(.title2)
                 .padding(.horizontal, 40)

@@ -11,9 +11,12 @@ class ServerManager: ObservableObject {
     let port: Int = 8080
     private var statsTimer: Timer?
 
-    func startServer() {
+    func startServer(with rules: HouseRules = .defaults) {
+        let jsonData = (try? JSONEncoder().encode(rules)) ?? Data()
+        let configJSON = String(data: jsonData, encoding: .utf8) ?? ""
+
         var error: NSError?
-        MobileStart(port, &error)
+        MobileStartWithConfig(port, configJSON, &error)
         if let error = error {
             errorMessage = error.localizedDescription
             return

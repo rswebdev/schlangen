@@ -6,6 +6,7 @@
 package mobile
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -30,6 +31,29 @@ func Start(serverPort int) error {
 	}
 
 	cfg := engine.DefaultConfig()
+	srv = engine.NewServer(cfg)
+	port = serverPort
+
+	return srv.Start(serverPort)
+}
+
+// StartWithConfig initializes the server with a JSON config string.
+// Any fields not present in the JSON will use default values.
+func StartWithConfig(serverPort int, configJSON string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if srv != nil {
+		return fmt.Errorf("server already running")
+	}
+
+	cfg := engine.DefaultConfig()
+	if configJSON != "" {
+		if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+			return fmt.Errorf("invalid config: %w", err)
+		}
+	}
+
 	srv = engine.NewServer(cfg)
 	port = serverPort
 
