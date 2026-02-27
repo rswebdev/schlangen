@@ -3,11 +3,12 @@ import SwiftUI
 // MARK: - House Rules Model
 
 struct HouseRules: Codable {
-    var worldSize: Int = 10000
-    var foodCount: Int = 3000
-    var aiCount: Int = 30
+    var worldSize: Int = 5000
+    var foodCount: Int = 1500
+    var aiCount: Int = 10
     var baseSpeed: Double = 3.2
     var boostSpeed: Double = 5.5
+    var tickRate: Int = 30
 
     static let defaults = HouseRules()
 }

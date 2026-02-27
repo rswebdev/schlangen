@@ -186,9 +186,9 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 	// Determine visible snakes (viewport filtered)
 	var visible []*Snake
 	var cx, cy float64
-	if p.snake != nil && len(p.snake.Segments) > 0 {
-		cx = p.snake.Segments[0].X
-		cy = p.snake.Segments[0].Y
+	if p.snake != nil && p.snake.Segments.Len() > 0 {
+		cx = p.snake.Segments.Head().X
+		cy = p.snake.Segments.Head().Y
 	} else {
 		cx = float64(g.cfg.WorldSize) / 2
 		cy = float64(g.cfg.WorldSize) / 2
@@ -202,10 +202,10 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 		if s == p.snake {
 			continue
 		}
-		if !s.Alive || len(s.Segments) == 0 {
+		if !s.Alive || s.Segments.Len() == 0 {
 			continue
 		}
-		sh := s.Segments[0]
+		sh := s.Segments.Head()
 		dx := math.Abs(sh.X - cx)
 		dy := math.Abs(sh.Y - cy)
 		if dx < ViewDist+1000 && dy < ViewDist+1000 {
@@ -244,7 +244,7 @@ func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood 
 	// Calculate buffer size
 	size := 4 // header
 	for i, s := range snakes {
-		segCount := (len(s.Segments) + 2) / 3 // ceil(n/3)
+		segCount := (s.Segments.Len() + 2) / 3 // ceil(n/3)
 		// playerId(2) + flags(1) + score(2) + angle(2) + boost(1) + targetLen(2) + invTimer(1) + segCount(2) + segs
 		perSnake := 2 + 1 + 2 + 2 + 1 + 2 + 1 + 2 + segCount*4
 		if hasMeta == nil || hasMeta[i] {
@@ -348,12 +348,13 @@ func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood 
 		o++
 
 		// Segments (every 3rd)
-		segCount := (len(s.Segments) + 2) / 3
+		segCount := (s.Segments.Len() + 2) / 3
 		binary.BigEndian.PutUint16(buf[o:], uint16(segCount))
 		o += 2
-		for j := 0; j < len(s.Segments); j += 3 {
-			x := int(math.Round(s.Segments[j].X))
-			y := int(math.Round(s.Segments[j].Y))
+		for j := 0; j < s.Segments.Len(); j += 3 {
+			seg := s.Segments.Get(j)
+			x := int(math.Round(seg.X))
+			y := int(math.Round(seg.Y))
 			if x < 0 {
 				x = 0
 			}
@@ -423,7 +424,7 @@ func serializeState(snakes []*Snake, hasMeta []bool, foods []*Food, includeFood 
 func (g *Game) buildSummaryBytes() []byte {
 	var alive []*Snake
 	for _, s := range g.snakes {
-		if s.Alive && len(s.Segments) > 0 {
+		if s.Alive && s.Segments.Len() > 0 {
 			alive = append(alive, s)
 		}
 	}
@@ -443,14 +444,14 @@ func (g *Game) buildSummaryBytes() []byte {
 		binary.BigEndian.PutUint16(buf[o:], uint16(int16(s.PlayerID)))
 		o += 2
 
-		hx := int(math.Round(s.Segments[0].X))
+		hx := int(math.Round(s.Segments.Head().X))
 		if hx < 0 {
 			hx = 0
 		}
 		if hx > 65535 {
 			hx = 65535
 		}
-		hy := int(math.Round(s.Segments[0].Y))
+		hy := int(math.Round(s.Segments.Head().Y))
 		if hy < 0 {
 			hy = 0
 		}

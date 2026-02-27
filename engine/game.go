@@ -29,6 +29,7 @@ type GameConfig struct {
 	KillFoodCount  int     `json:"killFoodCount"`
 	BoundaryMargin float64 `json:"boundaryMargin"`
 	AIRespawnTicks int     `json:"aiRespawnTicks"`
+	TickRate       int     `json:"tickRate"`
 }
 
 func DefaultConfig() GameConfig {
@@ -46,6 +47,7 @@ func DefaultConfig() GameConfig {
 		KillFoodCount:  8,
 		BoundaryMargin: 50,
 		AIRespawnTicks: 180,
+		TickRate:       60,
 	}
 }
 
@@ -57,7 +59,6 @@ const (
 	BodyRadius    = 10.0
 	FoodRadiusVal = 6.0
 	FoodValueVal  = 1.0
-	TickRate      = 60
 	NetTickRate   = 2
 	FoodSyncRate  = 9
 	ViewDist      = 2500.0
@@ -86,9 +87,69 @@ func nextAIID() int {
 
 type Vec2 struct{ X, Y float64 }
 
+// SegmentRing is an O(1)-prepend circular buffer for snake segments.
+// Logical index 0 is the head, Len()-1 is the tail.
+type SegmentRing struct {
+	buf  []Vec2
+	head int // index of element 0 (snake head) in buf
+	len  int // number of valid segments
+}
+
+func (r *SegmentRing) Len() int { return r.len }
+
+func (r *SegmentRing) Get(i int) Vec2 {
+	return r.buf[(r.head+i)%len(r.buf)]
+}
+
+func (r *SegmentRing) Head() Vec2 { return r.buf[r.head] }
+
+func (r *SegmentRing) Tail() Vec2 { return r.Get(r.len - 1) }
+
+// Prepend adds a new element at the front (new head). O(1) amortized.
+func (r *SegmentRing) Prepend(v Vec2) {
+	if r.len == len(r.buf) {
+		r.grow()
+	}
+	r.head = (r.head - 1 + len(r.buf)) % len(r.buf)
+	r.buf[r.head] = v
+	r.len++
+}
+
+// TrimTo reduces the length to n by discarding tail elements. No reallocation.
+func (r *SegmentRing) TrimTo(n int) {
+	if n < r.len {
+		r.len = n
+	}
+}
+
+// SetInitial bulk-loads a slice of segments (index 0 = head).
+func (r *SegmentRing) SetInitial(segs []Vec2) {
+	if cap(r.buf) < len(segs) {
+		r.buf = make([]Vec2, len(segs))
+	} else {
+		r.buf = r.buf[:len(segs)]
+	}
+	copy(r.buf, segs)
+	r.head = 0
+	r.len = len(segs)
+}
+
+func (r *SegmentRing) grow() {
+	newCap := len(r.buf) * 2
+	if newCap < 64 {
+		newCap = 64
+	}
+	newBuf := make([]Vec2, newCap)
+	for i := 0; i < r.len; i++ {
+		newBuf[i] = r.Get(i)
+	}
+	r.buf = newBuf
+	r.head = 0
+}
+
 type Snake struct {
 	Name        string
-	Segments    []Vec2
+	Segments    SegmentRing
 	Angle       float64
 	TargetAngle float64
 	Speed       float64
@@ -233,11 +294,11 @@ func (g *Game) randWorldPos() Vec2 {
 }
 
 func headRadius(s *Snake) float64 {
-	return HeadRadius + math.Min(float64(len(s.Segments))*0.03, 6)
+	return HeadRadius + math.Min(float64(s.Segments.Len())*0.03, 6)
 }
 
 func bodyRadius(s *Snake) float64 {
-	return BodyRadius + math.Min(float64(len(s.Segments))*0.025, 5)
+	return BodyRadius + math.Min(float64(s.Segments.Len())*0.025, 5)
 }
 
 // ---------------------------------------------------------------------------
@@ -290,12 +351,14 @@ func (g *Game) createSnake(name string, x, y float64, colorIdx int, isAI bool, p
 			Y: y - math.Sin(angle)*8*float64(i),
 		}
 	}
-	return &Snake{
-		Name: name, Segments: segs, Angle: angle, TargetAngle: angle,
+	s := &Snake{
+		Name: name, Angle: angle, TargetAngle: angle,
 		Speed: g.cfg.BaseSpeed, ColorIdx: colorIdx, IsAI: isAI, PlayerID: pid,
 		TargetLen: g.cfg.BaseSnakeLen, Boost: g.cfg.MaxBoost, Alive: true, InvTimer: 120,
 		AIState: "wander", AITargetAngle: angle,
 	}
+	s.Segments.SetInitial(segs)
+	return s
 }
 
 func (g *Game) growSnake(s *Snake, amt int) {
@@ -314,12 +377,12 @@ func (g *Game) updateSnake(s *Snake) {
 	diff := angleDiff(s.Angle, s.TargetAngle)
 	s.Angle += clampF(diff, -g.cfg.TurnSpeed, g.cfg.TurnSpeed) * 1.8
 
-	if s.IsBoosting && s.Boost > 0 && len(s.Segments) > 12 {
+	if s.IsBoosting && s.Boost > 0 && s.Segments.Len() > 12 {
 		s.Speed = g.cfg.BoostSpeed
 		s.Boost -= g.cfg.BoostDrain
 		if g.frame%8 == 0 && s.TargetLen > g.cfg.BaseSnakeLen {
 			s.TargetLen--
-			tail := s.Segments[len(s.Segments)-1]
+			tail := s.Segments.Tail()
 			g.foods = append(g.foods, &Food{
 				X:        tail.X + rand.Float64()*20 - 10,
 				Y:        tail.Y + rand.Float64()*20 - 10,
@@ -336,7 +399,7 @@ func (g *Game) updateSnake(s *Snake) {
 		}
 	}
 
-	head := s.Segments[0]
+	head := s.Segments.Head()
 	newX := head.X + math.Cos(s.Angle)*s.Speed
 	newY := head.Y + math.Sin(s.Angle)*s.Speed
 
@@ -354,10 +417,8 @@ func (g *Game) updateSnake(s *Snake) {
 	}
 
 	// Prepend new head
-	s.Segments = append([]Vec2{{newX, newY}}, s.Segments...)
-	for len(s.Segments) > s.TargetLen {
-		s.Segments = s.Segments[:len(s.Segments)-1]
-	}
+	s.Segments.Prepend(Vec2{newX, newY})
+	s.Segments.TrimTo(s.TargetLen)
 }
 
 func (g *Game) killSnake(s *Snake) {
@@ -366,12 +427,12 @@ func (g *Game) killSnake(s *Snake) {
 	}
 	s.Alive = false
 
-	step := len(s.Segments) / g.cfg.KillFoodCount
+	step := s.Segments.Len() / g.cfg.KillFoodCount
 	if step < 1 {
 		step = 1
 	}
-	for i := 0; i < len(s.Segments); i += step {
-		seg := s.Segments[i]
+	for i := 0; i < s.Segments.Len(); i += step {
+		seg := s.Segments.Get(i)
 		g.foods = append(g.foods, &Food{
 			X: seg.X + rand.Float64()*30 - 15, Y: seg.Y + rand.Float64()*30 - 15,
 			ColorIdx: rand.Intn(NumFoodColors),
@@ -402,7 +463,7 @@ func (g *Game) updateAI(s *Snake) {
 		return
 	}
 	s.AIStateTimer--
-	head := s.Segments[0]
+	head := s.Segments.Head()
 	ws := float64(g.cfg.WorldSize)
 
 	// Check for encirclement every 30 frames
@@ -484,17 +545,17 @@ func (g *Game) updateAI(s *Snake) {
 		var target *Snake
 		targetD := 500.0
 		for _, o := range g.snakes {
-			if o == s || !o.Alive || len(o.Segments) > int(float64(len(s.Segments))*1.5) {
+			if o == s || !o.Alive || o.Segments.Len() > int(float64(s.Segments.Len())*1.5) {
 				continue
 			}
-			d := dist(head.X, head.Y, o.Segments[0].X, o.Segments[0].Y)
+			d := dist(head.X, head.Y, o.Segments.Head().X, o.Segments.Head().Y)
 			if d < targetD {
 				targetD = d
 				target = o
 			}
 		}
 		if target != nil {
-			th := target.Segments[0]
+			th := target.Segments.Head()
 			px := th.X + math.Cos(target.Angle)*100
 			py := th.Y + math.Sin(target.Angle)*100
 			s.TargetAngle = math.Atan2(py-head.Y, px-head.X)
@@ -516,12 +577,12 @@ func (g *Game) updateAI(s *Snake) {
 		if o == s || !o.Alive {
 			continue
 		}
-		lim := len(o.Segments)
+		lim := o.Segments.Len()
 		if lim > 60 {
 			lim = 60
 		}
 		for k := 0; k < lim; k += 2 {
-			seg := o.Segments[k]
+			seg := o.Segments.Get(k)
 			d := dist(head.X, head.Y, seg.X, seg.Y)
 			ad := bodyRadius(o) + headRadius(s) + 60
 			if d < ad {
@@ -537,7 +598,7 @@ func (g *Game) updateAI(s *Snake) {
 // if it's being surrounded. Returns true + the best escape angle if
 // 5 or more rays are blocked by other snakes' body segments.
 func (g *Game) checkEncircled(s *Snake) (bool, float64) {
-	head := s.Segments[0]
+	head := s.Segments.Head()
 	blocked := 0
 	bestAngle := 0.0
 	bestClearDist := 0.0
@@ -555,8 +616,8 @@ func (g *Game) checkEncircled(s *Snake) (bool, float64) {
 					continue
 				}
 				step := 4
-				for k := 0; k < len(o.Segments); k += step {
-					if distSq(rx, ry, o.Segments[k].X, o.Segments[k].Y) < 900 {
+				for k := 0; k < o.Segments.Len(); k += step {
+					if distSq(rx, ry, o.Segments.Get(k).X, o.Segments.Get(k).Y) < 900 {
 						rayBlocked = true
 						break
 					}
@@ -616,7 +677,7 @@ func (g *Game) checkFoodCollision(s *Snake) {
 	if !s.Alive {
 		return
 	}
-	head := s.Segments[0]
+	head := s.Segments.Head()
 	hr := headRadius(s)
 
 	n := len(g.foods)
@@ -640,7 +701,7 @@ func (g *Game) checkSnakeCollisions() {
 		if !s.Alive || s.InvTimer > 0 {
 			continue
 		}
-		head := s.Segments[0]
+		head := s.Segments.Head()
 		hr := headRadius(s)
 
 		for _, o := range g.snakes {
@@ -648,8 +709,8 @@ func (g *Game) checkSnakeCollisions() {
 				continue
 			}
 			// Early-out: rough distance check against other snake's head
-			oh := o.Segments[0]
-			maxReach := float64(len(o.Segments)) * 8
+			oh := o.Segments.Head()
+			maxReach := float64(o.Segments.Len()) * 8
 			if distSq(head.X, head.Y, oh.X, oh.Y) > (maxReach+hr+50)*(maxReach+hr+50) {
 				continue
 			}
@@ -658,13 +719,13 @@ func (g *Game) checkSnakeCollisions() {
 			threshold := hr + br - 4
 			thresholdSq := threshold * threshold
 
-			for k := 5; k < len(o.Segments); k++ {
-				seg := o.Segments[k]
+			for k := 5; k < o.Segments.Len(); k++ {
+				seg := o.Segments.Get(k)
 				if distSq(head.X, head.Y, seg.X, seg.Y) < thresholdSq {
 					g.totalKills++
 					log.Printf("[KILL] '%s' killed by '%s' (score: %d)", s.Name, o.Name, s.Score)
 					g.killSnake(s)
-					g.growSnake(o, int(float64(len(s.Segments))*0.3))
+					g.growSnake(o, int(float64(s.Segments.Len())*0.3))
 					break
 				}
 			}
@@ -930,7 +991,7 @@ func (g *Game) tick() {
 	}
 
 	// Flush bandwidth accumulator every second (every TickRate frames)
-	if g.frame-g.bwLastSec >= TickRate {
+	if g.frame-g.bwLastSec >= g.cfg.TickRate {
 		g.bwPerSec[g.bwSecIdx%len(g.bwPerSec)] = g.bwAccum
 		g.bwSecIdx++
 		g.bwAccum = 0
@@ -947,7 +1008,7 @@ func (g *Game) tick() {
 }
 
 func (g *Game) Run() {
-	ticker := time.NewTicker(time.Second / TickRate)
+	ticker := time.NewTicker(time.Second / time.Duration(g.cfg.TickRate))
 	defer ticker.Stop()
 	for range ticker.C {
 		g.tick()
