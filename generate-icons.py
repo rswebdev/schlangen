@@ -353,12 +353,15 @@ def main():
     stack = os.path.join(brand_dir, "App Icon - App Store.imagestack")
     _populate_imagestack(stack, 1280, 768, "App Store")
 
-    # --- Top Shelf Image: 1920x720 ---
+    # --- Top Shelf Image: 1920x720 (must be fully opaque) ---
     shelf_dir = os.path.join(brand_dir, "Top Shelf Image.imageset")
     for (w, h), scale in [((1920, 720), "1x"), ((3840, 1440), "2x")]:
         fname = f"topshelf_{w}x{h}.png"
         img = draw_icon_rect(w, h)
-        img.save(os.path.join(shelf_dir, fname))
+        # Flatten onto opaque BG — PIL ImageDraw can leave stray alpha from glow
+        flat = Image.new("RGB", img.size, BG)
+        flat.paste(img, mask=img.split()[3])
+        flat.save(os.path.join(shelf_dir, fname))
         print(f"  -> Top Shelf/{fname}")
     with open(os.path.join(shelf_dir, "Contents.json"), "w") as f:
         json.dump({
@@ -369,12 +372,14 @@ def main():
             "info": {"version": 1, "author": "xcode"}
         }, f, indent=2)
 
-    # --- Top Shelf Image Wide: 2320x720 ---
+    # --- Top Shelf Image Wide: 2320x720 (must be fully opaque) ---
     shelf_wide_dir = os.path.join(brand_dir, "Top Shelf Image Wide.imageset")
     for (w, h), scale in [((2320, 720), "1x"), ((4640, 1440), "2x")]:
         fname = f"topshelf_wide_{w}x{h}.png"
         img = draw_icon_rect(w, h)
-        img.save(os.path.join(shelf_wide_dir, fname))
+        flat = Image.new("RGB", img.size, BG)
+        flat.paste(img, mask=img.split()[3])
+        flat.save(os.path.join(shelf_wide_dir, fname))
         print(f"  -> Top Shelf Wide/{fname}")
     with open(os.path.join(shelf_wide_dir, "Contents.json"), "w") as f:
         json.dump({
