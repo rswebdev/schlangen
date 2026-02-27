@@ -1,4 +1,4 @@
-module snake.io
+module schlangen.tv
 
 go 1.25.0
 

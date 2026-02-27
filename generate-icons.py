@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Snake.io app icons and favicon.
+"""Generate Schlangen.TV app icons and favicon.
 
 Draws a stylized snake head with body segments on the game's dark background,
 matching the in-game neon aesthetic.

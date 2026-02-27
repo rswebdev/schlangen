@@ -1,5 +1,5 @@
 // Package mobile provides gomobile-compatible bindings for embedding
-// the snake.io game server in iOS/tvOS/Android applications.
+// the schlangen.tv game server in iOS/tvOS/Android applications.
 //
 // All exported functions use only primitive types (int, string, error)
 // to satisfy gomobile's type restrictions.
@@ -11,7 +11,7 @@ import (
 	"net"
 	"sync"
 
-	"snake.io/engine"
+	"schlangen.tv/engine"
 )
 
 var (

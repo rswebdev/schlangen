@@ -70,7 +70,7 @@ func (s *Server) setupMux() *http.ServeMux {
 }
 
 func (s *Server) logStartup(addr string) {
-	log.Printf("Snake.io server v%s starting...", Version)
+	log.Printf("Schlangen.TV server v%s starting...", Version)
 	log.Printf("Listening on http://%s", addr)
 	log.Printf("WebSocket: ws://%s/ws", addr)
 	log.Printf("Dashboard: http://%s/dashboard", addr)

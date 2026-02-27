@@ -541,7 +541,7 @@ const dashboardHTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Snake.io Dashboard</title>
+<title>Schlangen.TV Dashboard</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -581,7 +581,7 @@ const dashboardHTML = `<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1><span><span class="dot"></span>Snake.io Server <span id="version" style="font-size:13px;font-weight:normal;color:rgba(255,255,255,0.5)"></span></span><span id="uptime" style="font-size:14px;font-weight:normal;color:rgba(255,255,255,0.7)"></span></h1>
+<h1><span><span class="dot"></span>Schlangen.TV Server <span id="version" style="font-size:13px;font-weight:normal;color:rgba(255,255,255,0.5)"></span></span><span id="uptime" style="font-size:14px;font-weight:normal;color:rgba(255,255,255,0.7)"></span></h1>
 <div class="grid" id="cards"></div>
 <h2>Leaderboard</h2>
 <table>

@@ -1,4 +1,4 @@
-# Snake.io
+# Schlangen.TV
 
 A multiplayer snake game playable in the browser. Supports solo play with AI opponents and online multiplayer via a Go WebSocket server.
 

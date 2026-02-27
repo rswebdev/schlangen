@@ -23,7 +23,7 @@ struct StartView: View {
 
     var body: some View {
         VStack(spacing: 40) {
-            Text("Snake.io")
+            Text("Schlangen.TV")
                 .font(.system(size: 72, weight: .bold))
                 .foregroundStyle(
                     LinearGradient(
@@ -110,7 +110,7 @@ struct DashboardView: View {
                     Circle()
                         .fill(.green)
                         .frame(width: 12, height: 12)
-                    Text("Snake.io Server")
+                    Text("Schlangen.TV Server")
                         .font(.title2)
                         .fontWeight(.bold)
                     Text("v\(server.stats.version)")

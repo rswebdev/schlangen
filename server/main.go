@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"snake.io/engine"
+	"schlangen.tv/engine"
 )
 
 func main() {

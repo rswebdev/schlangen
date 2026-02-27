@@ -15,7 +15,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Snake.io runs a local game server so players on the same WiFi can connect and play together.</string>
+	<string>Schlangen.TV runs a local game server so players on the same WiFi can connect and play together.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_http._tcp</string>

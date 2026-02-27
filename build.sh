@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 FRAMEWORKS_DIR="$ROOT/appletv/Frameworks"
 export PATH="$HOME/go/bin:$PATH"
 
-echo "=== Snake.io Build Script ==="
+echo "=== Schlagen.TV Build Script ==="
 echo ""
 
 # --- Helper ---
@@ -73,7 +73,7 @@ build_mobile() {
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>Mobile</string>
-    <key>CFBundleIdentifier</key><string>snake.io.Mobile</string>
+    <key>CFBundleIdentifier</key><string>schlangen.tv.Mobile</string>
     <key>CFBundleName</key><string>Mobile</string>
     <key>CFBundleVersion</key><string>1.0.0</string>
     <key>CFBundlePackageType</key><string>FMWK</string>
@@ -105,7 +105,7 @@ PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>Mobile</string>
-    <key>CFBundleIdentifier</key><string>snake.io.Mobile</string>
+    <key>CFBundleIdentifier</key><string>schlangen.tv.Mobile</string>
     <key>CFBundleName</key><string>Mobile</string>
     <key>CFBundleVersion</key><string>1.0.0</string>
     <key>CFBundlePackageType</key><string>FMWK</string>
