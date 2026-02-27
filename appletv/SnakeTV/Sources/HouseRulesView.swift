@@ -214,6 +214,7 @@ struct HouseRulesView: View {
             }
         }
         .padding(.vertical, 40)
+        .onAppear { rules = server.lastRules }
     }
 }
 

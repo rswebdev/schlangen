@@ -349,6 +349,10 @@
   <button id="respawn-btn">Play Again</button>
 </div>
 
+<div id="spectator-overlay" style="display:none;position:fixed;top:30px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,0.6);color:#fff;padding:8px 24px;border-radius:20px;font-size:18px;
+  font-weight:600;z-index:999;pointer-events:none"></div>
+
 <script>
 // ============================================================
 // DEVICE DETECTION
@@ -384,6 +388,11 @@ function requestFullscreen() {
 // GAME CONSTANTS
 // ============================================================
 let WORLD_SIZE = 5000;
+
+// Spectator mode (via URL param ?spectate=SnakeName)
+const urlParams = new URLSearchParams(window.location.search);
+const spectateTarget = urlParams.get('spectate');
+const isSpectator = !!spectateTarget;
 const GRID_SPACING = 60;
 const FOOD_COUNT = 800;
 const AI_COUNT = 15;
@@ -799,6 +808,19 @@ function updateParticles() {
 // CAMERA
 // ============================================================
 function updateCamera() {
+  if (isSpectator) {
+    let target = aiSnakes.find(s => s.name === spectateTarget && s.alive);
+    if (!target && globalSnakeSummary.length > 0) {
+      const top = [...globalSnakeSummary].sort((a,b) => b.score - a.score)[0];
+      target = aiSnakes.find(s => s.name === top.name && s.alive);
+    }
+    if (target && target.segments.length > 0) {
+      const head = target.segments[0];
+      camera.x = lerp(camera.x, head.x - canvas.width/2, 0.1);
+      camera.y = lerp(camera.y, head.y - canvas.height/2, 0.1);
+    }
+    return;
+  }
   if (!player || !player.alive) return;
   const head = player.segments[0];
   camera.x = lerp(camera.x, head.x - canvas.width/2, 0.1);
@@ -1190,8 +1212,12 @@ function wsConnect(url, getReachable) {
               myPlayerId = msg.pid;
               if (msg.ws) WORLD_SIZE = msg.ws;
               if (msg.v) document.getElementById('version-display').textContent = 'v' + msg.v;
-              playerName = document.getElementById('player-name').value.trim() || 'Player';
-              ws.send(JSON.stringify({ t: 'join', name: playerName }));
+              if (isSpectator) {
+                ws.send(JSON.stringify({ t: 'spectate', name: spectateTarget }));
+              } else {
+                playerName = document.getElementById('player-name').value.trim() || 'Player';
+                ws.send(JSON.stringify({ t: 'join', name: playerName }));
+              }
             }
           } catch (err) {}
         } else {
@@ -1255,6 +1281,16 @@ function deserializeBinaryState(buffer) {
     hideDeathScreen();
     gameRunning = true;
     particles = [];
+    if (isSpectator) {
+      document.getElementById('boost-btn').style.display = 'none';
+      document.getElementById('score').style.display = 'none';
+      document.getElementById('length-display').style.display = 'none';
+      document.getElementById('boost-bar-container').style.display = 'none';
+      document.getElementById('pause-btn').style.display = 'none';
+      const overlay = document.getElementById('spectator-overlay');
+      overlay.textContent = 'Spectating: ' + spectateTarget;
+      overlay.style.display = 'block';
+    }
   }
 
   const wasAlive = player && player.alive;
@@ -1407,6 +1443,7 @@ function deserializeBinaryState(buffer) {
 }
 
 function sendClientInput() {
+  if (isSpectator) return;
   if (!ws || ws.readyState !== WebSocket.OPEN || !player) return;
 
   let angle = 0;
@@ -1499,7 +1536,7 @@ function gameLoop(timestamp) {
     }
 
     updateParticles();
-    if (player && player.alive) updateCamera();
+    if (isSpectator || (player && player.alive)) updateCamera();
 
     ctx.fillStyle = '#0a0a2e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawGrid(); drawBoundary(); drawFood();
@@ -1667,6 +1704,13 @@ document.getElementById('respawn-btn').addEventListener('click', () => {
 });
 document.getElementById('resume-btn').addEventListener('click', togglePause);
 document.getElementById('pause-btn').addEventListener('click', togglePause);
+
+// Auto-connect in spectator mode
+if (isSpectator) {
+  document.getElementById('start-screen').style.display = 'none';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  wsConnect(proto + '//' + location.host + '/ws', () => true);
+}
 
 requestAnimationFrame(gameLoop);
 </script>

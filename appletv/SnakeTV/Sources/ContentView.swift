@@ -66,6 +66,8 @@ struct StartView: View {
 
 struct DashboardView: View {
     @EnvironmentObject var server: ServerManager
+    @State private var showSpectator = false
+    @State private var spectatingName = ""
 
     var body: some View {
         HStack(spacing: 40) {
@@ -81,12 +83,28 @@ struct DashboardView: View {
                     .cornerRadius(16)
 
                 Text(server.connectURL)
-                    .font(.system(.title3, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundColor(.blue)
 
-                Text("Join on any phone browser")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if let rules = server.activeRules {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("HOUSE RULES")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .tracking(1)
+                        HStack(spacing: 16) {
+                            RuleChip(icon: "map", label: WorldSizePreset.from(rules.worldSize).rawValue)
+                            RuleChip(icon: "hare", label: SpeedPreset.from(rules.baseSpeed).rawValue)
+                            RuleChip(icon: "bolt.fill", label: BoostPreset.from(rules.boostSpeed).rawValue)
+                        }
+                        HStack(spacing: 16) {
+                            RuleChip(icon: "circle.circle.fill", label: FoodPreset.from(rules.foodCount).rawValue)
+                            RuleChip(icon: "cpu", label: AICountPreset.from(rules.aiCount).rawValue)
+                        }
+                    }
+                    .padding(.top, 8)
+                }
 
                 Spacer()
 
@@ -176,7 +194,13 @@ struct DashboardView: View {
                 ScrollView {
                     VStack(spacing: 2) {
                         ForEach(Array(server.stats.leaderboard.prefix(10).enumerated()), id: \.offset) { index, entry in
-                            LeaderboardRow(rank: index + 1, entry: entry)
+                            Button(action: {
+                                spectatingName = entry.name
+                                showSpectator = true
+                            }) {
+                                LeaderboardRow(rank: index + 1, entry: entry)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -184,6 +208,14 @@ struct DashboardView: View {
             .padding()
         }
         .padding()
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .fullScreenCover(isPresented: $showSpectator) {
+            SpectatorWebView(
+                url: URL(string: "http://localhost:\(server.port)/?spectate=\(spectatingName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? spectatingName)")!
+            )
+            .ignoresSafeArea()
+        }
     }
 }
 
@@ -222,6 +254,22 @@ private func tickLoadColor(_ avgTickMs: Double) -> Color {
     if pct < 50 { return .green }
     if pct < 80 { return .yellow }
     return .red
+}
+
+struct RuleChip: View {
+    let icon: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.primary)
+        }
+    }
 }
 
 struct LeaderboardRow: View {

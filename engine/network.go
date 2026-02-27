@@ -18,13 +18,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type Player struct {
-	id          int
-	name        string
-	conn        *websocket.Conn
-	snake       *Snake
-	sendCh      chan []byte
-	done        chan struct{}
-	knownSnakes map[int]bool // snake IDs whose metadata has been sent
+	id           int
+	name         string
+	conn         *websocket.Conn
+	snake        *Snake
+	sendCh       chan []byte
+	done         chan struct{}
+	knownSnakes  map[int]bool // snake IDs whose metadata has been sent
+	spectateName string       // name of snake to follow (empty = not spectating)
 }
 
 var playerIDCounter int64
@@ -121,6 +122,13 @@ func (p *Player) readPump(game *Game) {
 				log.Printf("Player %d joined as '%s'", p.id, p.name)
 			case "respawn":
 				game.respawnCh <- p.id
+			case "spectate":
+				name, _ := msg["name"].(string)
+				if name != "" {
+					p.spectateName = name
+					p.name = "Spectator"
+					game.joinCh <- p
+				}
 			}
 		} else if msgType == websocket.BinaryMessage && len(data) == 4 && data[0] == 2 {
 			// Input: type(1) + angle_int16(2) + boost(1)
@@ -186,12 +194,25 @@ func (g *Game) serializeStateFor(p *Player, includeFood bool) []byte {
 	// Determine visible snakes (viewport filtered)
 	var visible []*Snake
 	var cx, cy float64
-	if p.snake != nil && p.snake.Segments.Len() > 0 {
-		cx = p.snake.Segments.Head().X
-		cy = p.snake.Segments.Head().Y
-	} else {
-		cx = float64(g.cfg.WorldSize) / 2
-		cy = float64(g.cfg.WorldSize) / 2
+	found := false
+	if p.spectateName != "" {
+		for _, s := range g.snakes {
+			if s.Name == p.spectateName && s.Alive && s.Segments.Len() > 0 {
+				cx = s.Segments.Head().X
+				cy = s.Segments.Head().Y
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		if p.snake != nil && p.snake.Segments.Len() > 0 {
+			cx = p.snake.Segments.Head().X
+			cy = p.snake.Segments.Head().Y
+		} else {
+			cx = float64(g.cfg.WorldSize) / 2
+			cy = float64(g.cfg.WorldSize) / 2
+		}
 	}
 
 	// Always include own snake
@@ -494,7 +515,7 @@ func (g *Game) broadcast(includeFood bool, includeSummary bool) {
 	}
 
 	for _, p := range g.players {
-		if p.snake == nil {
+		if p.snake == nil && p.spectateName == "" {
 			continue
 		}
 		oldKnown := p.knownSnakes

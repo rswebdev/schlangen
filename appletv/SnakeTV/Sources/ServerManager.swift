@@ -7,6 +7,8 @@ class ServerManager: ObservableObject {
     @Published var localIP = ""
     @Published var errorMessage: String?
     @Published var stats: GameStats = GameStats()
+    @Published var activeRules: HouseRules?
+    @Published var lastRules: HouseRules = .defaults
 
     let port: Int = 8080
     private var statsTimer: Timer?
@@ -25,12 +27,15 @@ class ServerManager: ObservableObject {
         localIP = MobileGetLocalIP()
         connectURL = MobileGetConnectURL()
         errorMessage = nil
+        activeRules = rules
+        lastRules = rules
         startPollingStats()
     }
 
     func stopServer() {
         MobileStop()
         isRunning = false
+        activeRules = nil
         stopPollingStats()
     }
 

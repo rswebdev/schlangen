@@ -833,6 +833,18 @@ func (g *Game) drainMessages() {
 }
 
 func (g *Game) handleJoin(p *Player) {
+	g.players[p.id] = p
+
+	if p.spectateName != "" {
+		log.Printf("[SPECTATE] Player %d spectating '%s'", p.id, p.spectateName)
+		data := g.serializeStateFor(p, true)
+		select {
+		case p.sendCh <- data:
+		default:
+		}
+		return
+	}
+
 	// Remove one AI to make room
 	for i, s := range g.snakes {
 		if s.IsAI && s.Alive {
@@ -845,7 +857,6 @@ func (g *Game) handleJoin(p *Player) {
 	snake := g.createSnake(p.name, pos.X, pos.Y, rand.Intn(NumColors), false, p.id)
 	p.snake = snake
 	g.snakes = append(g.snakes, snake)
-	g.players[p.id] = p
 	g.totalJoins++
 	current := len(g.players)
 	if current > g.peakPlayers {
@@ -866,6 +877,13 @@ func (g *Game) handleLeave(id int) {
 	if !ok {
 		return
 	}
+
+	if p.spectateName != "" {
+		log.Printf("[SPECTATE] Spectator %d left", id)
+		delete(g.players, id)
+		return
+	}
+
 	g.totalLeaves++
 	log.Printf("[LEAVE] Player %d '%s' left (players: %d)", id, p.name, len(g.players)-1)
 

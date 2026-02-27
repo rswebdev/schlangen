@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 FRAMEWORKS_DIR="$ROOT/appletv/Frameworks"
 export PATH="$HOME/go/bin:$PATH"
 
-echo "=== Schlagen.TV Build Script ==="
+echo "=== Schlangen.TV Build Script ==="
 echo ""
 
 # --- Helper ---
