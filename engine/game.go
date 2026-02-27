@@ -176,6 +176,65 @@ type Food struct {
 	Value    float64
 }
 
+// foodGrid is a spatial hash grid for fast food lookups.
+const foodCellSize = 200.0
+
+type foodGrid struct {
+	cols  int
+	cells [][]*Food // flat 2D grid: cells[row*cols + col]
+}
+
+func (fg *foodGrid) init(worldSize int) {
+	fg.cols = int(math.Ceil(float64(worldSize) / foodCellSize))
+	fg.cells = make([][]*Food, fg.cols*fg.cols)
+}
+
+func (fg *foodGrid) rebuild(foods []*Food) {
+	for i := range fg.cells {
+		fg.cells[i] = fg.cells[i][:0] // reuse backing arrays
+	}
+	for _, f := range foods {
+		c := int(f.X/foodCellSize) + int(f.Y/foodCellSize)*fg.cols
+		if c >= 0 && c < len(fg.cells) {
+			fg.cells[c] = append(fg.cells[c], f)
+		}
+	}
+}
+
+// nearby calls fn for each food within radius of (x,y). fn returns true to stop early.
+func (fg *foodGrid) nearby(x, y, radius float64, fn func(*Food) bool) {
+	r := radius / foodCellSize
+	minC := int(math.Floor((x - radius) / foodCellSize))
+	maxC := int(math.Floor((x + radius) / foodCellSize))
+	minR := int(math.Floor((y - radius) / foodCellSize))
+	maxR := int(math.Floor((y + radius) / foodCellSize))
+	if minC < 0 {
+		minC = 0
+	}
+	if minR < 0 {
+		minR = 0
+	}
+	if maxC >= fg.cols {
+		maxC = fg.cols - 1
+	}
+	if maxR >= fg.cols {
+		maxR = fg.cols - 1
+	}
+	_ = r // radius already factored into min/max
+	rSq := radius * radius
+	for row := minR; row <= maxR; row++ {
+		for col := minC; col <= maxC; col++ {
+			for _, f := range fg.cells[row*fg.cols+col] {
+				if distSq(x, y, f.X, f.Y) < rSq {
+					if fn(f) {
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
 type InputMsg struct {
 	PlayerID int
 	Angle    float64
@@ -226,6 +285,9 @@ type Game struct {
 	joinCh    chan *Player
 	leaveCh   chan int
 	respawnCh chan int
+
+	// Spatial grid for food lookups
+	foodGrid foodGrid
 
 	// Stats tracking
 	startTime   time.Time
@@ -316,6 +378,7 @@ func NewGame(cfg GameConfig) *Game {
 		startTime:  time.Now(),
 		statsReqCh: make(chan chan StatsSnapshot, 4),
 	}
+	g.foodGrid.init(cfg.WorldSize)
 
 	used := make(map[string]bool)
 	for i := 0; i < cfg.AICount; i++ {
@@ -466,8 +529,8 @@ func (g *Game) updateAI(s *Snake) {
 	head := s.Segments.Head()
 	ws := float64(g.cfg.WorldSize)
 
-	// Check for encirclement every 30 frames
-	if g.frame%30 == 0 {
+	// Check for encirclement every 60 frames
+	if g.frame%60 == 0 {
 		if encircled, escapeAngle := g.checkEncircled(s); encircled {
 			s.AIState = "escape"
 			s.AIStateTimer = 45
@@ -525,14 +588,15 @@ func (g *Game) updateAI(s *Snake) {
 
 	case "food":
 		var closest *Food
-		closestD := 400.0
-		for _, f := range g.foods {
-			d := dist(head.X, head.Y, f.X, f.Y)
-			if d < closestD {
-				closestD = d
+		closestDSq := 400.0 * 400.0
+		g.foodGrid.nearby(head.X, head.Y, 400, func(f *Food) bool {
+			d2 := distSq(head.X, head.Y, f.X, f.Y)
+			if d2 < closestDSq {
+				closestDSq = d2
 				closest = f
 			}
-		}
+			return false
+		})
 		if closest != nil {
 			s.TargetAngle = math.Atan2(closest.Y-head.Y, closest.X-head.X)
 		} else {
@@ -543,14 +607,14 @@ func (g *Game) updateAI(s *Snake) {
 
 	case "hunt":
 		var target *Snake
-		targetD := 500.0
+		targetDSq := 500.0 * 500.0
 		for _, o := range g.snakes {
 			if o == s || !o.Alive || o.Segments.Len() > int(float64(s.Segments.Len())*1.5) {
 				continue
 			}
-			d := dist(head.X, head.Y, o.Segments.Head().X, o.Segments.Head().Y)
-			if d < targetD {
-				targetD = d
+			d2 := distSq(head.X, head.Y, o.Segments.Head().X, o.Segments.Head().Y)
+			if d2 < targetDSq {
+				targetDSq = d2
 				target = o
 			}
 		}
@@ -559,7 +623,7 @@ func (g *Game) updateAI(s *Snake) {
 			px := th.X + math.Cos(target.Angle)*100
 			py := th.Y + math.Sin(target.Angle)*100
 			s.TargetAngle = math.Atan2(py-head.Y, px-head.X)
-			s.IsBoosting = targetD < 200 && s.Boost > 30
+			s.IsBoosting = targetDSq < 200*200 && s.Boost > 30
 		} else {
 			s.AIState = "wander"
 		}
@@ -583,11 +647,12 @@ func (g *Game) updateAI(s *Snake) {
 		}
 		for k := 0; k < lim; k += 2 {
 			seg := o.Segments.Get(k)
-			d := dist(head.X, head.Y, seg.X, seg.Y)
+			d2 := distSq(head.X, head.Y, seg.X, seg.Y)
 			ad := bodyRadius(o) + headRadius(s) + 60
-			if d < ad {
+			adSq := ad * ad
+			if d2 < adSq {
 				s.TargetAngle = math.Atan2(head.Y-seg.Y, head.X-seg.X)
-				s.IsBoosting = d < ad*0.6 && s.Boost > 20
+				s.IsBoosting = d2 < adSq*0.36 && s.Boost > 20 // 0.36 = 0.6^2
 				return
 			}
 		}
@@ -679,17 +744,22 @@ func (g *Game) checkFoodCollision(s *Snake) {
 	}
 	head := s.Segments.Head()
 	hr := headRadius(s)
+	maxR := hr + FoodRadiusVal + 1 // max possible collision radius
 
-	n := len(g.foods)
-	for i := n - 1; i >= 0; i-- {
-		f := g.foods[i]
+	g.foodGrid.nearby(head.X, head.Y, maxR, func(f *Food) bool {
 		if distSq(head.X, head.Y, f.X, f.Y) < (hr+f.Radius)*(hr+f.Radius) {
 			g.growSnake(s, int(math.Round(f.Value)))
-			// Remove food (swap with last)
-			g.foods[i] = g.foods[len(g.foods)-1]
-			g.foods = g.foods[:len(g.foods)-1]
+			// Remove food from g.foods (find by pointer, swap with last)
+			for i, ff := range g.foods {
+				if ff == f {
+					g.foods[i] = g.foods[len(g.foods)-1]
+					g.foods = g.foods[:len(g.foods)-1]
+					break
+				}
+			}
 		}
-	}
+		return false
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -951,6 +1021,9 @@ func (g *Game) tick() {
 	g.frame++
 	g.drainMessages()
 
+	// Rebuild spatial food grid once per tick
+	g.foodGrid.rebuild(g.foods)
+
 	for _, s := range g.snakes {
 		if !s.Alive {
 			if s.IsAI {
@@ -962,7 +1035,10 @@ func (g *Game) tick() {
 			continue
 		}
 		if s.IsAI {
-			g.updateAI(s)
+			// AI updates every other frame to save CPU
+			if g.frame%2 == 0 {
+				g.updateAI(s)
+			}
 		}
 		g.updateSnake(s)
 		g.checkFoodCollision(s)
