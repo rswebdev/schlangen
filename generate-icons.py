@@ -143,9 +143,10 @@ def draw_icon_rect(width, height, padding_frac=0.06, layer=None):
 
     layer=None: full composite (default)
     layer="back": opaque background with grid only (RGB)
-    layer="front": snake + food on transparent background (RGBA)
+    layer="middle": food particles on transparent background (RGBA)
+    layer="front": snake only on transparent background (RGBA)
     """
-    if layer == "front":
+    if layer in ("front", "middle"):
         img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     else:
         img = Image.new("RGBA", (width, height), BG + (255,))
@@ -156,7 +157,7 @@ def draw_icon_rect(width, height, padding_frac=0.06, layer=None):
     scale = min(width, height)
 
     # Draw subtle grid (back layer or full composite)
-    if layer != "front":
+    if layer not in ("front", "middle"):
         grid_overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         grid_draw = ImageDraw.Draw(grid_overlay)
         grid_step = max(int(scale / 12), 8)
@@ -171,25 +172,30 @@ def draw_icon_rect(width, height, padding_frac=0.06, layer=None):
     if layer == "back":
         return img.convert("RGB")
 
-    # Scatter food particles
-    import random
-    random.seed(42)
-    food_r = max(int(scale * 0.012), 3)
-    for _ in range(30):
-        fx = random.randint(int(pad_x), int(width - pad_x))
-        fy = random.randint(int(pad_y), int(height - pad_y))
-        fc = FOOD_COLORS[random.randint(0, len(FOOD_COLORS) - 1)]
-        glow_r = food_r * GLOW_RADIUS[2]
-        for gr in range(int(glow_r), food_r, -1):
-            alpha = int(30 * (1 - (gr - food_r) / (glow_r - food_r)))
+    # Scatter food particles (middle layer, or full composite)
+    if layer != "front":
+        import random
+        random.seed(42)
+        food_r = max(int(scale * 0.012), 3)
+        for _ in range(30):
+            fx = random.randint(int(pad_x), int(width - pad_x))
+            fy = random.randint(int(pad_y), int(height - pad_y))
+            fc = FOOD_COLORS[random.randint(0, len(FOOD_COLORS) - 1)]
+            glow_r = food_r * GLOW_RADIUS[2]
+            for gr in range(int(glow_r), food_r, -1):
+                alpha = int(30 * (1 - (gr - food_r) / (glow_r - food_r)))
+                draw.ellipse(
+                    [fx - gr, fy - gr, fx + gr, fy + gr],
+                    fill=fc + (alpha,)
+                )
             draw.ellipse(
-                [fx - gr, fy - gr, fx + gr, fy + gr],
-                fill=fc + (alpha,)
+                [fx - food_r, fy - food_r, fx + food_r, fy + food_r],
+                fill=fc + (220,)
             )
-        draw.ellipse(
-            [fx - food_r, fy - food_r, fx + food_r, fy + food_r],
-            fill=fc + (220,)
-        )
+
+    # Middle layer is just food particles
+    if layer == "middle":
+        return img
 
     # Snake body: S-curve across the width
     head_r = scale * 0.08
@@ -276,14 +282,14 @@ def generate_favicon_svg():
 def _populate_imagestack(stack_dir, w1x, h1x, label):
     """Populate a 3-layer imagestack (Front/Middle/Back) at given 1x size.
 
-    Front: snake + food on transparent background (RGBA)
-    Middle: left empty
+    Front: snake on transparent background (RGBA)
+    Middle: food particles on transparent background (RGBA)
     Back: opaque background with grid (RGB) — must be last & fully opaque
     """
     import json
     w2x, h2x = w1x * 2, h1x * 2
 
-    # Front layer: snake + food on transparent background
+    # Front layer: snake on transparent background
     front_dir = os.path.join(stack_dir, "Front.imagestacklayer", "Content.imageset")
     for (w, h), scale in [((w1x, h1x), "1x"), ((w2x, h2x), "2x")]:
         img = draw_icon_rect(w, h, layer="front")
@@ -295,6 +301,22 @@ def _populate_imagestack(stack_dir, w1x, h1x, label):
             "images": [
                 {"filename": f"front_{w1x}x{h1x}.png", "idiom": "tv", "scale": "1x"},
                 {"filename": f"front_{w2x}x{h2x}.png", "idiom": "tv", "scale": "2x"},
+            ],
+            "info": {"version": 1, "author": "xcode"}
+        }, f, indent=2)
+
+    # Middle layer: food particles on transparent background
+    middle_dir = os.path.join(stack_dir, "Middle.imagestacklayer", "Content.imageset")
+    for (w, h), scale in [((w1x, h1x), "1x"), ((w2x, h2x), "2x")]:
+        img = draw_icon_rect(w, h, layer="middle")
+        fname = f"middle_{w}x{h}.png"
+        img.save(os.path.join(middle_dir, fname))
+        print(f"  -> {label}/Middle/{fname}")
+    with open(os.path.join(middle_dir, "Contents.json"), "w") as f:
+        json.dump({
+            "images": [
+                {"filename": f"middle_{w1x}x{h1x}.png", "idiom": "tv", "scale": "1x"},
+                {"filename": f"middle_{w2x}x{h2x}.png", "idiom": "tv", "scale": "2x"},
             ],
             "info": {"version": 1, "author": "xcode"}
         }, f, indent=2)
