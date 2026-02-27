@@ -1,6 +1,6 @@
 # Schlangen.TV
 
-A multiplayer snake game playable in the browser. Supports solo play with AI opponents and online multiplayer via a Go WebSocket server.
+A multiplayer snake game playable in the browser and on Apple TV. Supports solo play with AI opponents and online multiplayer via a Go WebSocket server.
 
 ## Running the Server
 
@@ -32,6 +32,8 @@ Open http://localhost:8080 in your browser. The client HTML is embedded in the b
 | `-boundary-margin` | `50` | Boundary margin |
 | `-ai-respawn-ticks` | `180` | AI respawn delay in ticks |
 
+The `tickRate` parameter (default `60`) is configurable via the JSON config file but has no CLI flag.
+
 Examples:
 
 ```bash
@@ -58,7 +60,8 @@ You can use a JSON file to set all gameplay parameters at once. CLI flags overri
   "baseSnakeLen": 10,
   "killFoodCount": 8,
   "boundaryMargin": 50,
-  "aiRespawnTicks": 180
+  "aiRespawnTicks": 180,
+  "tickRate": 60
 }
 ```
 
@@ -78,12 +81,26 @@ Only include the fields you want to change — omitted fields keep their default
 ## Project Structure
 
 ```
-server/
-  main.go           Entry point, HTTP server, embedded client
-  game.go           Game logic (snakes, AI, food, collisions)
-  network.go        WebSocket handling, binary protocol serialization
+engine/
+  game.go           Game logic (snakes, AI, food, collisions, spatial grid)
+  network.go        WebSocket handling, binary protocol serialization, dashboard
+  server.go         HTTP server, embedded client
   index.html        Client (game rendering, input, networking) — embedded via go:embed
-  go.mod            Go module definition
+server/
+  main.go           CLI entry point, flag parsing
+mobile/
+  mobile.go         gomobile bindings for embedding the server in iOS/tvOS/Android
+appletv/
+  SnakeTV/
+    Sources/
+      SnakeTVApp.swift       App entry point
+      ContentView.swift      Main UI (QR code, stats dashboard, leaderboard)
+      HouseRulesView.swift   Game settings ("House Rules") with presets
+      ServerManager.swift    Manages embedded Go server lifecycle + stats polling
+      QRCodeView.swift       QR code generator for connect URL
+    Assets.xcassets/         App icons, Top Shelf images, brand assets
+    project.yml              XcodeGen project definition
+build.sh                     gomobile build + platform patching script
 ```
 
 ## Architecture
@@ -99,7 +116,7 @@ sequenceDiagram
     participant C as Player C (Mobile)
     participant S as Server (Go)
 
-    Note over S: Game loop running at 60 Hz<br/>30 AI snakes + food spawned
+    Note over S: Game loop running at configurable tick rate<br/>(60 Hz default, 30 Hz on Apple TV)<br/>AI snakes + food spawned
 
     A->>S: WebSocket connect /ws
     S->>A: welcome JSON {pid, worldSize}
@@ -143,7 +160,7 @@ sequenceDiagram
     participant Client as Client (Browser)
     participant WS as WebSocket
     participant RP as readPump (goroutine)
-    participant GL as Game Loop (60 Hz)
+    participant GL as Game Loop (configurable Hz)
     participant WP as writePump (goroutine)
 
     Note over GL: Single goroutine owns all game state
@@ -192,7 +209,61 @@ Per-client outbound bandwidth is ~38 KB/s, broken down roughly as:
 | Food (viewport) | ~4 | 3.3 Hz |
 | Summary (global) | ~7 | 15 Hz |
 
+## Apple TV App
+
+The `appletv/SnakeTV` directory contains a native tvOS app that embeds the Go game server via gomobile. Players connect from their phones by scanning a QR code displayed on the TV.
+
+### Building
+
+```bash
+# Build the gomobile framework for tvOS
+./build.sh
+
+# Generate the Xcode project (requires xcodegen)
+cd appletv/SnakeTV
+xcodegen generate
+open SnakeTV.xcodeproj
+```
+
+### tvOS Defaults
+
+The Apple TV app uses lower defaults optimized for the A8 chip (Apple TV 4th gen):
+
+| Parameter | Server Default | tvOS Default |
+|-----------|---------------|--------------|
+| World Size | 10000 | 5000 |
+| Food Count | 3000 | 1500 |
+| AI Count | 30 | 10 |
+| Tick Rate | 60 Hz | 30 Hz |
+
+All parameters are adjustable via the "House Rules" screen before starting a game.
+
+## Engine Optimizations
+
+The game engine includes several optimizations targeting low-power hardware (Apple TV 4th gen, A8 chip, 2 GB RAM):
+
+### Ring Buffer Segments (`SegmentRing`)
+
+Snake segments use a circular buffer instead of a Go slice. Moving a snake forward previously required `append([]Vec2{newHead}, segments...)` — an O(n) copy every frame per snake. With 30+ snakes at 60 Hz, that's ~1800 allocations/sec. The ring buffer (`Prepend` + `TrimTo`) is O(1) with no allocations during normal gameplay.
+
+### Spatial Hash Grid for Food
+
+Food items are indexed in a 200-unit cell grid (`foodGrid`). Food collision checks and AI food-seeking query only the nearby cells instead of iterating all food items. This reduces food lookups from O(snakes * food) to O(snakes * nearby_cells).
+
+### Squared Distance Comparisons
+
+All distance checks in AI logic (food seeking, hunting, collision avoidance, encirclement detection) use `distSq()` instead of `dist()`, avoiding `math.Sqrt` in hot paths. With 50 AI snakes, this eliminates tens of thousands of sqrt calls per second.
+
+### Halved AI Update Rate
+
+AI brains run every other frame (`g.frame%2 == 0`), halving the CPU cost of AI logic while remaining visually smooth since movement still updates every frame.
+
+### Configurable Tick Rate
+
+The game loop tick rate is configurable via `tickRate` in the JSON config. The tvOS app defaults to 30 Hz instead of 60 Hz, halving per-frame CPU budget requirements.
+
 ## Requirements
 
 - Go 1.21+
 - A modern browser with WebSocket support
+- For Apple TV: Xcode 15+, gomobile, XcodeGen
