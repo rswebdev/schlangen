@@ -78,10 +78,10 @@ def draw_icon(size, padding_frac=0.08):
     for i in range(len(path) - 1, 0, -1):
         px, py = path[i]
         t = 1 - (i / len(path))  # 0 at tail, 1 at head
-        r = body_r * (0.4 + 0.6 * (1 - t * 0.5))
+        r = body_r * (0.4 + 0.6 * t)
         # Alternating stripes
         color = SNAKE_HEAD if (i // 2) % 2 == 0 else SNAKE_BODY
-        alpha = int(180 + 75 * (1 - t))
+        alpha = int(180 + 75 * t)
         # Glow
         draw.ellipse(
             [px - r * GLOW_RADIUS[1], py - r * GLOW_RADIUS[1], px + r * GLOW_RADIUS[1], py + r * GLOW_RADIUS[1]],
@@ -138,21 +138,34 @@ def draw_icon(size, padding_frac=0.08):
     return img
 
 
-def draw_icon_rect(width, height, padding_frac=0.06):
-    """Draw the snake icon at a rectangular size (for tvOS top shelf etc)."""
-    img = Image.new("RGBA", (width, height), BG + (255,))
+def draw_icon_rect(width, height, padding_frac=0.06, layer=None):
+    """Draw the snake icon at a rectangular size (for tvOS top shelf etc).
+
+    layer=None: full composite (default)
+    layer="back": opaque background with grid only (RGB)
+    layer="front": snake + food on transparent background (RGBA)
+    """
+    if layer == "front":
+        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    else:
+        img = Image.new("RGBA", (width, height), BG + (255,))
     draw = ImageDraw.Draw(img)
     cx, cy = width / 2, height / 2
     pad_x = width * padding_frac
     pad_y = height * padding_frac
     scale = min(width, height)
 
-    # Draw subtle grid
-    grid_step = max(int(scale / 12), 8)
-    for x in range(0, width, grid_step):
-        draw.line([(x, 0), (x, height)], fill=GRID_COLOR, width=1)
-    for y in range(0, height, grid_step):
-        draw.line([(0, y), (width, y)], fill=GRID_COLOR, width=1)
+    # Draw subtle grid (back layer or full composite)
+    if layer != "front":
+        grid_step = max(int(scale / 12), 8)
+        for x in range(0, width, grid_step):
+            draw.line([(x, 0), (x, height)], fill=GRID_COLOR, width=1)
+        for y in range(0, height, grid_step):
+            draw.line([(0, y), (width, y)], fill=GRID_COLOR, width=1)
+
+    # Back layer is just bg + grid
+    if layer == "back":
+        return img.convert("RGB")
 
     # Scatter food particles
     import random
@@ -189,9 +202,9 @@ def draw_icon_rect(width, height, padding_frac=0.06):
     for i in range(len(path) - 1, 0, -1):
         px, py = path[i]
         t = 1 - (i / len(path))
-        r = body_r * (0.35 + 0.65 * (1 - t * 0.5))
+        r = body_r * (0.35 + 0.65 * t)
         color = SNAKE_HEAD if (i // 2) % 2 == 0 else SNAKE_BODY
-        alpha = int(180 + 75 * (1 - t))
+        alpha = int(180 + 75 * t)
         draw.ellipse(
             [px - r * GLOW_RADIUS[1], py - r * GLOW_RADIUS[1], px + r * GLOW_RADIUS[1], py + r * GLOW_RADIUS[1]],
             fill=color + (int(alpha * 0.15),)
@@ -259,48 +272,61 @@ def generate_favicon_svg():
 def main():
     root = os.path.dirname(os.path.abspath(__file__))
     assets_dir = os.path.join(root, "appletv", "SnakeTV", "Assets.xcassets")
+    import json
 
-    # --- tvOS App Icon (single layer approach) ---
-    # tvOS uses AppIcon.imagestack with layers, but the simplest approach
-    # that works is a single-layer app icon via AppIcon.brandassets
-    # Required sizes: 1280x768 (App Store), 400x240 (Home screen 1x), 800x480 (2x)
-    icon_dir = os.path.join(assets_dir, "AppIcon.brandassets", "AppIcon.imagestack",
-                            "Layer0.imagestacklayer", "Content.imageset")
-    os.makedirs(icon_dir, exist_ok=True)
+    # --- tvOS App Icon (2-layer imagestack: Back + Front) ---
+    stack_dir = os.path.join(assets_dir, "AppIcon.brandassets", "AppIcon.imagestack")
 
     sizes = {
-        "icon_400x240.png": (400, 240),
-        "icon_800x480.png": (800, 480),
+        "400x240": (400, 240),
+        "800x480": (800, 480),
     }
 
-    for filename, (w, h) in sizes.items():
-        img = draw_icon_rect(w, h)
-        img.save(os.path.join(icon_dir, filename))
-        print(f"  -> {filename} ({w}x{h})")
-
-    # Content.imageset/Contents.json
-    import json
-    contents = {
-        "images": [
-            {"filename": "icon_400x240.png", "idiom": "tv", "scale": "1x"},
-            {"filename": "icon_800x480.png", "idiom": "tv", "scale": "2x"},
-        ],
-        "info": {"version": 1, "author": "xcode"}
-    }
-    with open(os.path.join(icon_dir, "Contents.json"), "w") as f:
-        json.dump(contents, f, indent=2)
-
-    # Layer Contents.json
-    layer_dir = os.path.join(assets_dir, "AppIcon.brandassets", "AppIcon.imagestack",
-                             "Layer0.imagestacklayer")
-    with open(os.path.join(layer_dir, "Contents.json"), "w") as f:
+    # Back layer: opaque background with grid (RGB)
+    back_img_dir = os.path.join(stack_dir, "Back.imagestacklayer", "Content.imageset")
+    os.makedirs(back_img_dir, exist_ok=True)
+    for label, (w, h) in sizes.items():
+        img = draw_icon_rect(w, h, layer="back")
+        filename = f"back_{label}.png"
+        img.save(os.path.join(back_img_dir, filename))
+        print(f"  -> Back/{filename} ({w}x{h})")
+    with open(os.path.join(back_img_dir, "Contents.json"), "w") as f:
+        json.dump({
+            "images": [
+                {"filename": "back_400x240.png", "idiom": "tv", "scale": "1x"},
+                {"filename": "back_800x480.png", "idiom": "tv", "scale": "2x"},
+            ],
+            "info": {"version": 1, "author": "xcode"}
+        }, f, indent=2)
+    with open(os.path.join(stack_dir, "Back.imagestacklayer", "Contents.json"), "w") as f:
         json.dump({"info": {"version": 1, "author": "xcode"}}, f, indent=2)
 
-    # Imagestack Contents.json
-    stack_dir = os.path.join(assets_dir, "AppIcon.brandassets", "AppIcon.imagestack")
+    # Front layer: snake + food on transparent background (RGBA)
+    front_img_dir = os.path.join(stack_dir, "Front.imagestacklayer", "Content.imageset")
+    os.makedirs(front_img_dir, exist_ok=True)
+    for label, (w, h) in sizes.items():
+        img = draw_icon_rect(w, h, layer="front")
+        filename = f"front_{label}.png"
+        img.save(os.path.join(front_img_dir, filename))
+        print(f"  -> Front/{filename} ({w}x{h})")
+    with open(os.path.join(front_img_dir, "Contents.json"), "w") as f:
+        json.dump({
+            "images": [
+                {"filename": "front_400x240.png", "idiom": "tv", "scale": "1x"},
+                {"filename": "front_800x480.png", "idiom": "tv", "scale": "2x"},
+            ],
+            "info": {"version": 1, "author": "xcode"}
+        }, f, indent=2)
+    with open(os.path.join(stack_dir, "Front.imagestacklayer", "Contents.json"), "w") as f:
+        json.dump({"info": {"version": 1, "author": "xcode"}}, f, indent=2)
+
+    # Imagestack Contents.json (Back first, then Front)
     with open(os.path.join(stack_dir, "Contents.json"), "w") as f:
         json.dump({
-            "layers": [{"filename": "Layer0.imagestacklayer"}],
+            "layers": [
+                {"filename": "Back.imagestacklayer"},
+                {"filename": "Front.imagestacklayer"},
+            ],
             "info": {"version": 1, "author": "xcode"}
         }, f, indent=2)
 
