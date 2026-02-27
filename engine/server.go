@@ -15,6 +15,9 @@ var Version = "1.0.0"
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed apple-touch-icon.png
+var appleTouchIcon []byte
+
 // Server wraps a Game instance with an HTTP/WebSocket server.
 type Server struct {
 	Game       *Game
@@ -55,6 +58,12 @@ func (s *Server) setupMux() *http.ServeMux {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.WriteHeader(200)
 		w.Write([]byte("ok"))
+	})
+
+	mux.HandleFunc("/apple-touch-icon.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(appleTouchIcon)
 	})
 
 	return mux
