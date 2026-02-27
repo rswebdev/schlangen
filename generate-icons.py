@@ -22,6 +22,7 @@ FOOD_COLORS = [
 ]
 GRID_COLOR = (255, 255, 255, 10)  # very subtle
 
+GLOW_RADIUS = [0.0, 1.04, 1.08, 1.12]  # for body segments glow effect
 
 def draw_icon(size, padding_frac=0.08):
     """Draw the snake icon at the given square size."""
@@ -47,8 +48,8 @@ def draw_icon(size, padding_frac=0.08):
         fy = random.randint(int(pad), int(size - pad))
         fc = FOOD_COLORS[random.randint(0, len(FOOD_COLORS) - 1)]
         # glow
-        glow_r = food_r * 3
-        for gr in range(glow_r, food_r, -1):
+        glow_r = food_r * GLOW_RADIUS[2]
+        for gr in range(int(glow_r), food_r, -1):
             alpha = int(30 * (1 - (gr - food_r) / (glow_r - food_r)))
             draw.ellipse(
                 [fx - gr, fy - gr, fx + gr, fy + gr],
@@ -83,7 +84,7 @@ def draw_icon(size, padding_frac=0.08):
         alpha = int(180 + 75 * (1 - t))
         # Glow
         draw.ellipse(
-            [px - r * 1.4, py - r * 1.4, px + r * 1.4, py + r * 1.4],
+            [px - r * GLOW_RADIUS[1], py - r * GLOW_RADIUS[1], px + r * GLOW_RADIUS[1], py + r * GLOW_RADIUS[1]],
             fill=color + (int(alpha * 0.15),)
         )
         draw.ellipse(
@@ -100,7 +101,7 @@ def draw_icon(size, padding_frac=0.08):
 
     # Head glow
     draw.ellipse(
-        [hx - head_r * 2, hy - head_r * 2, hx + head_r * 2, hy + head_r * 2],
+        [hx - head_r * GLOW_RADIUS[2], hy - head_r * GLOW_RADIUS[2], hx + head_r * GLOW_RADIUS[2], hy + head_r * GLOW_RADIUS[2]],
         fill=SNAKE_HEAD + (40,)
     )
     # Head body
@@ -161,8 +162,8 @@ def draw_icon_rect(width, height, padding_frac=0.06):
         fx = random.randint(int(pad_x), int(width - pad_x))
         fy = random.randint(int(pad_y), int(height - pad_y))
         fc = FOOD_COLORS[random.randint(0, len(FOOD_COLORS) - 1)]
-        glow_r = food_r * 3
-        for gr in range(glow_r, food_r, -1):
+        glow_r = food_r * GLOW_RADIUS[2]
+        for gr in range(int(glow_r), food_r, -1):
             alpha = int(30 * (1 - (gr - food_r) / (glow_r - food_r)))
             draw.ellipse(
                 [fx - gr, fy - gr, fx + gr, fy + gr],
@@ -192,7 +193,7 @@ def draw_icon_rect(width, height, padding_frac=0.06):
         color = SNAKE_HEAD if (i // 2) % 2 == 0 else SNAKE_BODY
         alpha = int(180 + 75 * (1 - t))
         draw.ellipse(
-            [px - r * 1.4, py - r * 1.4, px + r * 1.4, py + r * 1.4],
+            [px - r * GLOW_RADIUS[1], py - r * GLOW_RADIUS[1], px + r * GLOW_RADIUS[1], py + r * GLOW_RADIUS[1]],
             fill=color + (int(alpha * 0.15),)
         )
         draw.ellipse(
@@ -206,7 +207,7 @@ def draw_icon_rect(width, height, padding_frac=0.06):
     heading = math.atan2(dy, dx)
 
     draw.ellipse(
-        [hx - head_r * 2, hy - head_r * 2, hx + head_r * 2, hy + head_r * 2],
+        [hx - head_r * GLOW_RADIUS[2], hy - head_r * GLOW_RADIUS[2], hx + head_r * GLOW_RADIUS[2], hy + head_r * GLOW_RADIUS[2]],
         fill=SNAKE_HEAD + (40,)
     )
     draw.ellipse(

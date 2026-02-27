@@ -13,7 +13,7 @@ cmd_exists() { command -v "$1" &>/dev/null; }
 
 # --- Build standalone server ---
 build_server() {
-    echo "[1/4] Building standalone server..."
+    echo "[1/5] Building standalone server..."
     cd "$ROOT"
     go build -o "$ROOT/server/snake-server" ./server/
     echo "  -> server/snake-server"
@@ -21,7 +21,7 @@ build_server() {
 
 # --- Build gomobile framework for tvOS ---
 build_mobile() {
-    echo "[2/4] Building gomobile framework for tvOS..."
+    echo "[2/5] Building gomobile framework for tvOS..."
 
     # gomobile bind requires Xcode.app (not just Command Line Tools)
     if [ ! -d "/Applications/Xcode.app" ]; then
@@ -147,9 +147,22 @@ PLIST
     echo "  -> appletv/Frameworks/Mobile-tvOS.xcframework"
 }
 
+# --- Generate app icons ---
+build_icons() {
+    echo "[3/5] Generating app icons..."
+
+    # Pillow is required — use a venv to avoid system package conflicts
+    VENV="$ROOT/.venv"
+    if [ ! -f "$VENV/bin/python3" ]; then
+        python3 -m venv "$VENV"
+        "$VENV/bin/pip" install --quiet Pillow
+    fi
+    "$VENV/bin/python3" "$ROOT/generate-icons.py"
+}
+
 # --- Generate Xcode project ---
 build_xcode() {
-    echo "[3/4] Generating Xcode project..."
+    echo "[4/5] Generating Xcode project..."
 
     if ! cmd_exists xcodegen; then
         echo "  xcodegen not found. Install with: brew install xcodegen"
@@ -164,7 +177,7 @@ build_xcode() {
 
 # --- Build tvOS app ---
 build_app() {
-    echo "[4/4] Building tvOS app..."
+    echo "[5/5] Building tvOS app..."
     xcodebuild \
         -project "$ROOT/appletv/SnakeTV/SnakeTV.xcodeproj" \
         -scheme SnakeTV \
@@ -180,6 +193,9 @@ case "${1:-all}" in
     mobile)
         build_mobile
         ;;
+    icons)
+        build_icons
+        ;;
     xcode)
         build_xcode
         ;;
@@ -189,6 +205,7 @@ case "${1:-all}" in
     all)
         build_server
         build_mobile
+        build_icons
         build_xcode
         build_app
         echo ""
@@ -197,10 +214,11 @@ case "${1:-all}" in
         echo "Select your Apple TV as the target device and hit Run"
         ;;
     *)
-        echo "Usage: $0 [server|mobile|xcode|app|all]"
+        echo "Usage: $0 [server|mobile|icons|xcode|app|all]"
         echo ""
         echo "  server  - Build standalone Go server binary"
         echo "  mobile  - Build gomobile .xcframework for tvOS"
+        echo "  icons   - Generate app icons and favicon"
         echo "  xcode   - Generate Xcode project with xcodegen"
         echo "  app     - Build tvOS app for simulator"
         echo "  all     - Build everything (default)"

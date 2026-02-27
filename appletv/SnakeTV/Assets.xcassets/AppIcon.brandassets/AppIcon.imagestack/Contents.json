@@ -1,10 +1,7 @@
 {
   "layers": [
     {
-      "filename": "Front.imagestacklayer"
-    },
-    {
-      "filename": "Back.imagestacklayer"
+      "filename": "Layer0.imagestacklayer"
     }
   ],
   "info": {
