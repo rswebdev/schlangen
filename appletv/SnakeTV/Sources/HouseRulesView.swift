@@ -105,6 +105,34 @@ enum FoodPreset: String, CaseIterable {
     }
 }
 
+enum AICountPreset: String, CaseIterable {
+    case none = "None"
+    case few = "Few"
+    case some = "Some"
+    case many = "Many"
+    case swarm = "Swarm"
+
+    var value: Int {
+        switch self {
+        case .none: return 0
+        case .few: return 10
+        case .some: return 20
+        case .many: return 30
+        case .swarm: return 50
+        }
+    }
+
+    static func from(_ v: Int) -> AICountPreset {
+        switch v {
+        case ...4: return .none
+        case 5...14: return .few
+        case 15...24: return .some
+        case 25...39: return .many
+        default: return .swarm
+        }
+    }
+}
+
 // MARK: - House Rules View
 
 struct HouseRulesView: View {
@@ -112,80 +140,57 @@ struct HouseRulesView: View {
     @State private var rules = HouseRules.defaults
 
     var body: some View {
-        VStack(spacing: 30) {
+        VStack(spacing: 24) {
             Text("House Rules")
-                .font(.system(size: 48, weight: .bold))
+                .font(.title)
+                .fontWeight(.bold)
 
-            // Settings grid
-            VStack(spacing: 16) {
-                PresetRow(
+            VStack(spacing: 12) {
+                PickerRow(
                     label: "World Size",
                     icon: "map",
-                    options: WorldSizePreset.allCases.map { $0.rawValue },
-                    selected: WorldSizePreset.from(rules.worldSize).rawValue,
-                    onSelect: { name in
-                        if let p = WorldSizePreset.allCases.first(where: { $0.rawValue == name }) {
-                            rules.worldSize = p.value
-                        }
-                    }
+                    selection: WorldSizePreset.from(rules.worldSize),
+                    onSelect: { rules.worldSize = $0.value }
                 )
 
-                PresetRow(
+                PickerRow(
                     label: "Game Speed",
                     icon: "hare",
-                    options: SpeedPreset.allCases.map { $0.rawValue },
-                    selected: SpeedPreset.from(rules.baseSpeed).rawValue,
-                    onSelect: { name in
-                        if let p = SpeedPreset.allCases.first(where: { $0.rawValue == name }) {
-                            rules.baseSpeed = p.value
-                        }
-                    }
+                    selection: SpeedPreset.from(rules.baseSpeed),
+                    onSelect: { rules.baseSpeed = $0.value }
                 )
 
-                PresetRow(
+                PickerRow(
                     label: "Boost Speed",
                     icon: "bolt.fill",
-                    options: BoostPreset.allCases.map { $0.rawValue },
-                    selected: BoostPreset.from(rules.boostSpeed).rawValue,
-                    onSelect: { name in
-                        if let p = BoostPreset.allCases.first(where: { $0.rawValue == name }) {
-                            rules.boostSpeed = p.value
-                        }
-                    }
+                    selection: BoostPreset.from(rules.boostSpeed),
+                    onSelect: { rules.boostSpeed = $0.value }
                 )
 
-                PresetRow(
+                PickerRow(
                     label: "Food Density",
                     icon: "circle.circle.fill",
-                    options: FoodPreset.allCases.map { $0.rawValue },
-                    selected: FoodPreset.from(rules.foodCount).rawValue,
-                    onSelect: { name in
-                        if let p = FoodPreset.allCases.first(where: { $0.rawValue == name }) {
-                            rules.foodCount = p.value
-                        }
-                    }
+                    selection: FoodPreset.from(rules.foodCount),
+                    onSelect: { rules.foodCount = $0.value }
                 )
 
-                StepperRow(
+                PickerRow(
                     label: "AI Snakes",
                     icon: "cpu",
-                    value: $rules.aiCount,
-                    range: 0...50,
-                    step: 5
+                    selection: AICountPreset.from(rules.aiCount),
+                    onSelect: { rules.aiCount = $0.value }
                 )
             }
             .padding(.horizontal, 60)
 
             Spacer()
 
-            // Bottom buttons
             HStack(spacing: 40) {
                 Button(action: { rules = HouseRules.defaults }) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.counterclockwise")
                         Text("Reset Defaults")
                     }
-                    .font(.callout)
                 }
                 .buttonStyle(.bordered)
 
@@ -194,9 +199,8 @@ struct HouseRulesView: View {
                         Image(systemName: "play.fill")
                         Text("Start Game")
                     }
-                    .font(.title3)
-                    .padding(.horizontal, 30)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 6)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
@@ -214,80 +218,39 @@ struct HouseRulesView: View {
 
 // MARK: - Row Components
 
-struct PresetRow: View {
+struct PickerRow<T: RawRepresentable & CaseIterable & Hashable>: View where T.RawValue == String, T.AllCases: RandomAccessCollection {
     let label: String
     let icon: String
-    let options: [String]
-    let selected: String
-    let onSelect: (String) -> Void
+    let selection: T
+    let onSelect: (T) -> Void
 
-    var body: some View {
-        HStack {
-            Label(label, systemImage: icon)
-                .font(.title3)
-                .frame(width: 220, alignment: .leading)
+    @State private var current: T
 
-            Spacer()
-
-            HStack(spacing: 12) {
-                ForEach(options, id: \.self) { option in
-                    Button(action: { onSelect(option) }) {
-                        Text(option)
-                            .font(.callout)
-                            .fontWeight(option == selected ? .bold : .regular)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(option == selected ? .red : .gray)
-                }
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+    init(label: String, icon: String, selection: T, onSelect: @escaping (T) -> Void) {
+        self.label = label
+        self.icon = icon
+        self.selection = selection
+        self.onSelect = onSelect
+        self._current = State(initialValue: selection)
     }
-}
-
-struct StepperRow: View {
-    let label: String
-    let icon: String
-    @Binding var value: Int
-    let range: ClosedRange<Int>
-    let step: Int
 
     var body: some View {
         HStack {
             Label(label, systemImage: icon)
-                .font(.title3)
-                .frame(width: 220, alignment: .leading)
+                .frame(width: 500, alignment: .leading)
 
             Spacer()
 
-            HStack(spacing: 20) {
-                Button(action: {
-                    if value - step >= range.lowerBound { value -= step }
-                }) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.title2)
+            Picker(label, selection: $current) {
+                ForEach(Array(T.allCases), id: \.self) { option in
+                    Text(option.rawValue).tag(option)
                 }
-                .buttonStyle(.plain)
-                .disabled(value <= range.lowerBound)
-
-                Text("\(value)")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .frame(width: 60)
-
-                Button(action: {
-                    if value + step <= range.upperBound { value += step }
-                }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(value >= range.upperBound)
+            }
+            .onChange(of: current) { newValue in
+                onSelect(newValue)
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
     }
 }
