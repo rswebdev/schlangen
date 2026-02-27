@@ -273,88 +273,71 @@ def generate_favicon_svg():
 </svg>'''
 
 
+def _populate_imagestack(stack_dir, w1x, h1x, label):
+    """Populate a 3-layer imagestack (Front/Middle/Back) at given 1x size.
+
+    Front: snake + food on transparent background (RGBA)
+    Middle: left empty
+    Back: opaque background with grid (RGB) — must be last & fully opaque
+    """
+    import json
+    w2x, h2x = w1x * 2, h1x * 2
+
+    # Front layer: snake + food on transparent background
+    front_dir = os.path.join(stack_dir, "Front.imagestacklayer", "Content.imageset")
+    for (w, h), scale in [((w1x, h1x), "1x"), ((w2x, h2x), "2x")]:
+        img = draw_icon_rect(w, h, layer="front")
+        fname = f"front_{w}x{h}.png"
+        img.save(os.path.join(front_dir, fname))
+        print(f"  -> {label}/Front/{fname}")
+    with open(os.path.join(front_dir, "Contents.json"), "w") as f:
+        json.dump({
+            "images": [
+                {"filename": f"front_{w1x}x{h1x}.png", "idiom": "tv", "scale": "1x"},
+                {"filename": f"front_{w2x}x{h2x}.png", "idiom": "tv", "scale": "2x"},
+            ],
+            "info": {"version": 1, "author": "xcode"}
+        }, f, indent=2)
+
+    # Back layer: opaque background with grid
+    back_dir = os.path.join(stack_dir, "Back.imagestacklayer", "Content.imageset")
+    for (w, h), scale in [((w1x, h1x), "1x"), ((w2x, h2x), "2x")]:
+        img = draw_icon_rect(w, h, layer="back")
+        fname = f"back_{w}x{h}.png"
+        img.save(os.path.join(back_dir, fname))
+        print(f"  -> {label}/Back/{fname}")
+    with open(os.path.join(back_dir, "Contents.json"), "w") as f:
+        json.dump({
+            "images": [
+                {"filename": f"back_{w1x}x{h1x}.png", "idiom": "tv", "scale": "1x"},
+                {"filename": f"back_{w2x}x{h2x}.png", "idiom": "tv", "scale": "2x"},
+            ],
+            "info": {"version": 1, "author": "xcode"}
+        }, f, indent=2)
+
+
 def main():
     root = os.path.dirname(os.path.abspath(__file__))
     assets_dir = os.path.join(root, "appletv", "SnakeTV", "Assets.xcassets")
     import json
 
-    # --- tvOS App Icon (2-layer imagestack: Back + Front) ---
-    stack_dir = os.path.join(assets_dir, "AppIcon.brandassets", "AppIcon.imagestack")
+    brand_dir = os.path.join(assets_dir, "Brand Assets.brandassets")
 
-    sizes = {
-        "400x240": (400, 240),
-        "800x480": (800, 480),
-    }
+    # --- App Icon (Home Screen): 400x240 ---
+    stack = os.path.join(brand_dir, "App Icon.imagestack")
+    _populate_imagestack(stack, 400, 240, "App Icon")
 
-    # Back layer: opaque background with grid (RGB)
-    back_img_dir = os.path.join(stack_dir, "Back.imagestacklayer", "Content.imageset")
-    os.makedirs(back_img_dir, exist_ok=True)
-    for label, (w, h) in sizes.items():
-        img = draw_icon_rect(w, h, layer="back")
-        filename = f"back_{label}.png"
-        img.save(os.path.join(back_img_dir, filename))
-        print(f"  -> Back/{filename} ({w}x{h})")
-    with open(os.path.join(back_img_dir, "Contents.json"), "w") as f:
-        json.dump({
-            "images": [
-                {"filename": "back_400x240.png", "idiom": "tv", "scale": "1x"},
-                {"filename": "back_800x480.png", "idiom": "tv", "scale": "2x"},
-            ],
-            "info": {"version": 1, "author": "xcode"}
-        }, f, indent=2)
-    with open(os.path.join(stack_dir, "Back.imagestacklayer", "Contents.json"), "w") as f:
-        json.dump({"info": {"version": 1, "author": "xcode"}}, f, indent=2)
+    # --- App Icon - App Store: 1280x768 ---
+    stack = os.path.join(brand_dir, "App Icon - App Store.imagestack")
+    _populate_imagestack(stack, 1280, 768, "App Store")
 
-    # Front layer: snake + food on transparent background (RGBA)
-    front_img_dir = os.path.join(stack_dir, "Front.imagestacklayer", "Content.imageset")
-    os.makedirs(front_img_dir, exist_ok=True)
-    for label, (w, h) in sizes.items():
-        img = draw_icon_rect(w, h, layer="front")
-        filename = f"front_{label}.png"
-        img.save(os.path.join(front_img_dir, filename))
-        print(f"  -> Front/{filename} ({w}x{h})")
-    with open(os.path.join(front_img_dir, "Contents.json"), "w") as f:
-        json.dump({
-            "images": [
-                {"filename": "front_400x240.png", "idiom": "tv", "scale": "1x"},
-                {"filename": "front_800x480.png", "idiom": "tv", "scale": "2x"},
-            ],
-            "info": {"version": 1, "author": "xcode"}
-        }, f, indent=2)
-    with open(os.path.join(stack_dir, "Front.imagestacklayer", "Contents.json"), "w") as f:
-        json.dump({"info": {"version": 1, "author": "xcode"}}, f, indent=2)
-
-    # Imagestack Contents.json (Front first, Back last — last layer must be opaque)
-    with open(os.path.join(stack_dir, "Contents.json"), "w") as f:
-        json.dump({
-            "layers": [
-                {"filename": "Front.imagestacklayer"},
-                {"filename": "Back.imagestacklayer"},
-            ],
-            "info": {"version": 1, "author": "xcode"}
-        }, f, indent=2)
-
-    # Brandassets Contents.json
-    brand_dir = os.path.join(assets_dir, "AppIcon.brandassets")
-    with open(os.path.join(brand_dir, "Contents.json"), "w") as f:
-        json.dump({
-            "assets": [{"filename": "AppIcon.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "400x240"}],
-            "info": {"version": 1, "author": "xcode"}
-        }, f, indent=2)
-
-    # --- Top Shelf Image ---
-    shelf_dir = os.path.join(assets_dir, "TopShelf.imageset")
-    os.makedirs(shelf_dir, exist_ok=True)
-
-    shelf_sizes = {
-        "topshelf_1920x720.png": (1920, 720),
-        "topshelf_3840x1440.png": (3840, 1440),
-    }
-    for filename, (w, h) in shelf_sizes.items():
+    # --- Top Shelf Image: 1920x720 ---
+    shelf_dir = os.path.join(brand_dir, "Top Shelf Image.imageset")
+    for (w, h), scale in [((1920, 720), "1x"), ((3840, 1440), "2x")]:
+        fname = f"topshelf_{w}x{h}.png"
         img = draw_icon_rect(w, h)
-        img.save(os.path.join(shelf_dir, filename))
-        print(f"  -> {filename} ({w}x{h})")
-
+        img.save(os.path.join(shelf_dir, fname))
+        print(f"  -> Top Shelf/{fname}")
     with open(os.path.join(shelf_dir, "Contents.json"), "w") as f:
         json.dump({
             "images": [
@@ -364,9 +347,24 @@ def main():
             "info": {"version": 1, "author": "xcode"}
         }, f, indent=2)
 
+    # --- Top Shelf Image Wide: 2320x720 ---
+    shelf_wide_dir = os.path.join(brand_dir, "Top Shelf Image Wide.imageset")
+    for (w, h), scale in [((2320, 720), "1x"), ((4640, 1440), "2x")]:
+        fname = f"topshelf_wide_{w}x{h}.png"
+        img = draw_icon_rect(w, h)
+        img.save(os.path.join(shelf_wide_dir, fname))
+        print(f"  -> Top Shelf Wide/{fname}")
+    with open(os.path.join(shelf_wide_dir, "Contents.json"), "w") as f:
+        json.dump({
+            "images": [
+                {"filename": "topshelf_wide_2320x720.png", "idiom": "tv", "scale": "1x"},
+                {"filename": "topshelf_wide_4640x1440.png", "idiom": "tv", "scale": "2x"},
+            ],
+            "info": {"version": 1, "author": "xcode"}
+        }, f, indent=2)
+
     # --- Square icon for web / favicon ---
     favicon_dir = os.path.join(root, "engine")
-    # Generate PNG favicon (32x32 and 180x180 for apple-touch-icon)
     icon32 = draw_icon(32)
     icon32.save(os.path.join(favicon_dir, "favicon.png"))
     print("  -> engine/favicon.png (32x32)")
@@ -375,7 +373,6 @@ def main():
     icon180.save(os.path.join(favicon_dir, "apple-touch-icon.png"))
     print("  -> engine/apple-touch-icon.png (180x180)")
 
-    # SVG favicon
     svg = generate_favicon_svg()
     with open(os.path.join(favicon_dir, "favicon.svg"), "w") as f:
         f.write(svg)

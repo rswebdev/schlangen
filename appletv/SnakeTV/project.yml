@@ -18,7 +18,7 @@ targets:
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1
         INFOPLIST_FILE: Info.plist
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: "Brand Assets"
         FRAMEWORK_SEARCH_PATHS:
           - "$(PROJECT_DIR)/../Frameworks/Mobile-tvOS.xcframework"
           - "$(PROJECT_DIR)/../Frameworks"
