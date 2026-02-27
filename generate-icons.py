@@ -157,11 +157,15 @@ def draw_icon_rect(width, height, padding_frac=0.06, layer=None):
 
     # Draw subtle grid (back layer or full composite)
     if layer != "front":
+        grid_overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        grid_draw = ImageDraw.Draw(grid_overlay)
         grid_step = max(int(scale / 12), 8)
         for x in range(0, width, grid_step):
-            draw.line([(x, 0), (x, height)], fill=GRID_COLOR, width=1)
+            grid_draw.line([(x, 0), (x, height)], fill=GRID_COLOR, width=1)
         for y in range(0, height, grid_step):
-            draw.line([(0, y), (width, y)], fill=GRID_COLOR, width=1)
+            grid_draw.line([(0, y), (width, y)], fill=GRID_COLOR, width=1)
+        img = Image.alpha_composite(img, grid_overlay)
+        draw = ImageDraw.Draw(img)
 
     # Back layer is just bg + grid
     if layer == "back":
@@ -320,12 +324,12 @@ def main():
     with open(os.path.join(stack_dir, "Front.imagestacklayer", "Contents.json"), "w") as f:
         json.dump({"info": {"version": 1, "author": "xcode"}}, f, indent=2)
 
-    # Imagestack Contents.json (Back first, then Front)
+    # Imagestack Contents.json (Front first, Back last — last layer must be opaque)
     with open(os.path.join(stack_dir, "Contents.json"), "w") as f:
         json.dump({
             "layers": [
-                {"filename": "Back.imagestacklayer"},
                 {"filename": "Front.imagestacklayer"},
+                {"filename": "Back.imagestacklayer"},
             ],
             "info": {"version": 1, "author": "xcode"}
         }, f, indent=2)
@@ -334,7 +338,7 @@ def main():
     brand_dir = os.path.join(assets_dir, "AppIcon.brandassets")
     with open(os.path.join(brand_dir, "Contents.json"), "w") as f:
         json.dump({
-            "assets": [{"filename": "AppIcon.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "1280x768"}],
+            "assets": [{"filename": "AppIcon.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "400x240"}],
             "info": {"version": 1, "author": "xcode"}
         }, f, indent=2)
 
