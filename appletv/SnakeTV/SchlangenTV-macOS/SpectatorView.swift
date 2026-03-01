@@ -45,6 +45,27 @@ private let bgColor = Color(red: 0.04, green: 0.04, blue: 0.18) // #0a0a2e
 private class CameraState {
     var x: Double = 0
     var y: Double = 0
+
+    func updateCamera(snakes: [SpectatorSnake], spectateName: String, size: CGSize, ws: Double) {
+        var targetX = ws / 2
+        var targetY = ws / 2
+
+        // Find the spectated snake
+        if let target = snakes.first(where: { $0.name == spectateName && $0.alive && !$0.segments.isEmpty }) {
+            targetX = target.segments[0].x
+            targetY = target.segments[0].y
+        } else if let top = snakes.filter({ $0.alive && !$0.segments.isEmpty }).max(by: { $0.score < $1.score }) {
+            // Fallback: follow highest-score snake
+            targetX = top.segments[0].x
+            targetY = top.segments[0].y
+        }
+
+        let goalX = targetX - Double(size.width) / 2
+        let goalY = targetY - Double(size.height) / 2
+
+        x += (goalX - x) * 0.1
+        y += (goalY - y) * 0.1
+    }
 }
 
 // MARK: - SpectatorView
@@ -66,14 +87,14 @@ struct SpectatorView: View {
                     let foods = conn.foods
                     let ws = Double(conn.worldSize)
 
-                    // Update camera
-                    let cam = computeCamera(snakes: snakes, size: size, ws: ws)
+                    // Update camera (moved to CameraState)
+                    camera.updateCamera(snakes: snakes, spectateName: spectateName, size: size, ws: ws)
 
-                    drawGrid(ctx: &ctx, size: size, cam: cam, ws: ws)
-                    drawBoundary(ctx: &ctx, size: size, cam: cam, ws: ws)
-                    drawFoodItems(ctx: &ctx, size: size, cam: cam, foods: foods)
+                    drawGrid(ctx: &ctx, size: size, cam: camera, ws: ws)
+                    drawBoundary(ctx: &ctx, size: size, cam: camera, ws: ws)
+                    drawFoodItems(ctx: &ctx, size: size, cam: camera, foods: foods)
                     for snake in snakes where snake.alive {
-                        drawSnake(ctx: &ctx, size: size, cam: cam, snake: snake)
+                        drawSnake(ctx: &ctx, size: size, cam: camera, snake: snake)
                     }
                 }
             }
@@ -96,34 +117,9 @@ struct SpectatorView: View {
         .onDisappear { conn.disconnect() }
     }
 
-    // MARK: - Camera
-
-    private func computeCamera(snakes: [SpectatorSnake], size: CGSize, ws: Double) -> (x: Double, y: Double) {
-        var targetX = ws / 2
-        var targetY = ws / 2
-
-        // Find the spectated snake
-        if let target = snakes.first(where: { $0.name == spectateName && $0.alive && !$0.segments.isEmpty }) {
-            targetX = target.segments[0].x
-            targetY = target.segments[0].y
-        } else if let top = snakes.filter({ $0.alive && !$0.segments.isEmpty }).max(by: { $0.score < $1.score }) {
-            // Fallback: follow highest-score snake
-            targetX = top.segments[0].x
-            targetY = top.segments[0].y
-        }
-
-        let goalX = targetX - Double(size.width) / 2
-        let goalY = targetY - Double(size.height) / 2
-
-        camera.x += (goalX - camera.x) * 0.1
-        camera.y += (goalY - camera.y) * 0.1
-
-        return (camera.x, camera.y)
-    }
-
     // MARK: - Grid
 
-    private func drawGrid(ctx: inout GraphicsContext, size: CGSize, cam: (x: Double, y: Double), ws: Double) {
+    private func drawGrid(ctx: inout GraphicsContext, size: CGSize, cam: CameraState, ws: Double) {
         let startX = max(0, cam.x - 10)
         let endX = min(ws, cam.x + Double(size.width) + 10)
         let startY = max(0, cam.y - 10)
@@ -156,7 +152,7 @@ struct SpectatorView: View {
 
     // MARK: - Boundary
 
-    private func drawBoundary(ctx: inout GraphicsContext, size: CGSize, cam: (x: Double, y: Double), ws: Double) {
+    private func drawBoundary(ctx: inout GraphicsContext, size: CGSize, cam: CameraState, ws: Double) {
         let bx = boundaryMargin - cam.x
         let by = boundaryMargin - cam.y
         let bw = ws - boundaryMargin * 2
@@ -174,7 +170,7 @@ struct SpectatorView: View {
 
     // MARK: - Food
 
-    private func drawFoodItems(ctx: inout GraphicsContext, size: CGSize, cam: (x: Double, y: Double), foods: [SpectatorFood]) {
+    private func drawFoodItems(ctx: inout GraphicsContext, size: CGSize, cam: CameraState, foods: [SpectatorFood]) {
         let w = Double(size.width)
         let h = Double(size.height)
 
@@ -201,7 +197,7 @@ struct SpectatorView: View {
 
     // MARK: - Snake
 
-    private func drawSnake(ctx: inout GraphicsContext, size: CGSize, cam: (x: Double, y: Double), snake: SpectatorSnake) {
+    private func drawSnake(ctx: inout GraphicsContext, size: CGSize, cam: CameraState, snake: SpectatorSnake) {
         let segs = snake.segments
         guard segs.count >= 2 else { return }
 
