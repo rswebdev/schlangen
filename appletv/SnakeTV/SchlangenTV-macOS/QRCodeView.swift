@@ -6,7 +6,7 @@ struct QRCodeView: View {
 
     var body: some View {
         if let image = generateQRCode(from: url) {
-            Image(uiImage: image)
+            Image(nsImage: image)
                 .interpolation(.none)
                 .resizable()
                 .scaledToFit()
@@ -23,7 +23,7 @@ struct QRCodeView: View {
         }
     }
 
-    private func generateQRCode(from string: String) -> UIImage? {
+    private func generateQRCode(from string: String) -> NSImage? {
         let context = CIContext()
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
@@ -39,6 +39,6 @@ struct QRCodeView: View {
             return nil
         }
 
-        return UIImage(cgImage: cgImage)
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

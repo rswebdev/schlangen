@@ -203,11 +203,15 @@ struct DashboardView: View {
             .padding()
         }
         .padding()
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .fullScreenCover(isPresented: $showSpectator) {
+        .onAppear {
+            ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleDisplaySleepDisabled],
+                reason: "Schlangen.TV server running"
+            )
+        }
+        .sheet(isPresented: $showSpectator) {
             SpectatorView(port: server.port, spectateName: spectatingName)
-                .ignoresSafeArea()
+                .frame(minWidth: 800, minHeight: 600)
         }
     }
 }
