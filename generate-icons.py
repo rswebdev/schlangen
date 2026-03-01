@@ -340,10 +340,11 @@ def _populate_imagestack(stack_dir, w1x, h1x, label):
 
 def main():
     root = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(root, "appletv", "SnakeTV", "Assets.xcassets")
+    tvos_assets_dir = os.path.join(root, "appletv", "SnakeTV", "SchlangenTV-tvOS", "Assets.xcassets")
+    macos_assets_dir = os.path.join(root, "appletv", "SnakeTV", "SchlangenTV-macOS", "Assets.xcassets")
     import json
 
-    brand_dir = os.path.join(assets_dir, "Brand Assets.brandassets")
+    brand_dir = os.path.join(tvos_assets_dir, "Brand Assets.brandassets")
 
     # --- App Icon (Home Screen): 400x240 ---
     stack = os.path.join(brand_dir, "App Icon.imagestack")
@@ -401,7 +402,7 @@ def main():
     print("  -> engine/apple-touch-icon.png (180x180)")
 
     # --- iOS app icons (1024x1024) ---
-    ios_appicon_dir = os.path.join(assets_dir, "Brand Assets.appiconset")
+    ios_appicon_dir = os.path.join(tvos_assets_dir, "Brand Assets.appiconset")
     ios_appicon = draw_icon(1024)
     ios_appicon.save(os.path.join(ios_appicon_dir, "app-icon.png"))
     print("  -> iOS App Icon/app-icon.png (1024x1024)")
@@ -437,7 +438,7 @@ def main():
         (2732, 2048, "iPad Pro 12 Landscape"),
     ]
     
-    ios_launch_dir = os.path.join(assets_dir, "Brand Assets.launchimage")
+    ios_launch_dir = os.path.join(tvos_assets_dir, "Brand Assets.launchimage")
     for w, h, label in launch_sizes:
         fname = f"launch_{w}x{h}.png"
         img = draw_icon_rect(w, h)

@@ -13,7 +13,7 @@ cmd_exists() { command -v "$1" &>/dev/null; }
 
 # --- Build standalone server ---
 build_server() {
-    echo "[1/5] Building standalone server..."
+    echo "[1/6] Building standalone server..."
     cd "$ROOT"
     go build -o "$ROOT/server/snake-server" ./server/
     echo "  -> server/snake-server"
@@ -21,7 +21,7 @@ build_server() {
 
 # --- Build gomobile framework for tvOS ---
 build_mobile() {
-    echo "[2/5] Building gomobile framework for tvOS..."
+    echo "[2/6] Building gomobile framework for tvOS..."
 
     # gomobile bind requires Xcode.app (not just Command Line Tools)
     if [ ! -d "/Applications/Xcode.app" ]; then
@@ -147,9 +147,37 @@ PLIST
     echo "  -> appletv/Frameworks/Mobile-tvOS.xcframework"
 }
 
+# --- Build gomobile framework for macOS ---
+build_macos() {
+    echo "[2b/6] Building gomobile framework for macOS..."
+
+    if [ ! -d "/Applications/Xcode.app" ]; then
+        echo "  ERROR: Xcode.app is required for gomobile bind."
+        exit 1
+    fi
+
+    if ! cmd_exists gomobile; then
+        echo "  gomobile not found. Installing..."
+        go install golang.org/x/mobile/cmd/gomobile@latest
+        go install golang.org/x/mobile/cmd/gobind@latest
+        gomobile init
+    fi
+
+    MACOS_DIR="$FRAMEWORKS_DIR/macOS"
+    mkdir -p "$MACOS_DIR"
+
+    cd "$ROOT"
+    gomobile bind \
+        -target=macos \
+        -o "$MACOS_DIR/Mobile.xcframework" \
+        ./mobile/
+
+    echo "  -> appletv/Frameworks/macOS/Mobile.xcframework"
+}
+
 # --- Generate app icons ---
 build_icons() {
-    echo "[3/5] Generating app icons..."
+    echo "[3/6] Generating app icons..."
 
     # Pillow is required — use a venv to avoid system package conflicts
     VENV="$ROOT/.venv"
@@ -162,7 +190,7 @@ build_icons() {
 
 # --- Generate Xcode project ---
 build_xcode() {
-    echo "[4/5] Generating Xcode project..."
+    echo "[4/6] Generating Xcode project..."
 
     if ! cmd_exists xcodegen; then
         echo "  xcodegen not found. Install with: brew install xcodegen"
@@ -177,11 +205,21 @@ build_xcode() {
 
 # --- Build tvOS app ---
 build_app() {
-    echo "[5/5] Building tvOS app..."
+    echo "[5/6] Building tvOS app..."
     xcodebuild \
         -project "$ROOT/appletv/SnakeTV/SnakeTV.xcodeproj" \
         -scheme SnakeTV \
         -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
+        build 2>&1 | tail -3
+}
+
+# --- Build macOS app ---
+build_macapp() {
+    echo "[6/6] Building macOS app..."
+    xcodebuild \
+        -project "$ROOT/appletv/SnakeTV/SnakeTV.xcodeproj" \
+        -scheme SchlangenTV-macOS \
+        -destination 'platform=macOS' \
         build 2>&1 | tail -3
 }
 
@@ -193,6 +231,9 @@ case "${1:-all}" in
     mobile)
         build_mobile
         ;;
+    macos)
+        build_macos
+        ;;
     icons)
         build_icons
         ;;
@@ -202,25 +243,32 @@ case "${1:-all}" in
     app)
         build_app
         ;;
+    macapp)
+        build_macapp
+        ;;
     all)
         build_server
         build_mobile
+        build_macos
         build_icons
         build_xcode
         build_app
+        build_macapp
         echo ""
         echo "=== Done! ==="
         echo "Open appletv/SnakeTV/SnakeTV.xcodeproj in Xcode"
-        echo "Select your Apple TV as the target device and hit Run"
+        echo "Select your Apple TV or Mac as the target device and hit Run"
         ;;
     *)
-        echo "Usage: $0 [server|mobile|icons|xcode|app|all]"
+        echo "Usage: $0 [server|mobile|macos|icons|xcode|app|macapp|all]"
         echo ""
         echo "  server  - Build standalone Go server binary"
         echo "  mobile  - Build gomobile .xcframework for tvOS"
+        echo "  macos   - Build gomobile .xcframework for macOS"
         echo "  icons   - Generate app icons and favicon"
         echo "  xcode   - Generate Xcode project with xcodegen"
         echo "  app     - Build tvOS app for simulator"
+        echo "  macapp  - Build macOS app"
         echo "  all     - Build everything (default)"
         exit 1
         ;;
