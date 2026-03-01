@@ -65,8 +65,6 @@ struct StartView: View {
 
 struct DashboardView: View {
     @EnvironmentObject var server: ServerManager
-    @State private var showSpectator = false
-    @State private var spectatingName = ""
 
     var body: some View {
         HStack(spacing: 40) {
@@ -189,13 +187,7 @@ struct DashboardView: View {
                 ScrollView {
                     VStack(spacing: 2) {
                         ForEach(Array(server.stats.leaderboard.prefix(10).enumerated()), id: \.offset) { index, entry in
-                            Button(action: {
-                                spectatingName = entry.name
-                                showSpectator = true
-                            }) {
-                                LeaderboardRow(rank: index + 1, entry: entry)
-                            }
-                            .buttonStyle(.plain)
+                            LeaderboardRow(rank: index + 1, entry: entry)
                         }
                     }
                 }
@@ -205,10 +197,6 @@ struct DashboardView: View {
         .padding()
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .fullScreenCover(isPresented: $showSpectator) {
-            SpectatorView(port: server.port, spectateName: spectatingName)
-                .ignoresSafeArea()
-        }
     }
 }
 

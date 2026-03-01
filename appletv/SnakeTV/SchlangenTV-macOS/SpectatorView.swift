@@ -40,6 +40,13 @@ private let headRadiusBase: Double = 12
 private let bodyRadiusBase: Double = 10
 private let bgColor = Color(red: 0.04, green: 0.04, blue: 0.18) // #0a0a2e
 
+// MARK: - Camera State
+
+private class CameraState {
+    var x: Double = 0
+    var y: Double = 0
+}
+
 // MARK: - SpectatorView
 
 struct SpectatorView: View {
@@ -47,8 +54,7 @@ struct SpectatorView: View {
     let spectateName: String
 
     @StateObject private var conn = SpectatorConnection()
-    @State private var cameraX: Double = 0
-    @State private var cameraY: Double = 0
+    @State private var camera = CameraState()
 
     var body: some View {
         ZStack {
@@ -109,10 +115,10 @@ struct SpectatorView: View {
         let goalX = targetX - Double(size.width) / 2
         let goalY = targetY - Double(size.height) / 2
 
-        cameraX += (goalX - cameraX) * 0.1
-        cameraY += (goalY - cameraY) * 0.1
+        camera.x += (goalX - camera.x) * 0.1
+        camera.y += (goalY - camera.y) * 0.1
 
-        return (cameraX, cameraY)
+        return (camera.x, camera.y)
     }
 
     // MARK: - Grid
