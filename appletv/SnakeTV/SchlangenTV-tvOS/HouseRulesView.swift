@@ -8,6 +8,7 @@ struct HouseRules: Codable {
     var aiCount: Int = 10
     var baseSpeed: Double = 3.2
     var boostSpeed: Double = 5.5
+    var turnSpeed: Double = 0.08
     var tickRate: Int = 30
 
     static let defaults = HouseRules()
@@ -80,6 +81,28 @@ enum BoostPreset: String, CaseIterable {
         case ...6.2: return .normal
         case 6.3...8.0: return .fast
         default: return .turbo
+        }
+    }
+}
+
+enum TurnPreset: String, CaseIterable {
+    case sharp = "Sharp"
+    case normal = "Normal"
+    case wide = "Wide"
+
+    var value: Double {
+        switch self {
+        case .sharp: return 0.12
+        case .normal: return 0.08
+        case .wide: return 0.04
+        }
+    }
+
+    static func from(_ v: Double) -> TurnPreset {
+        switch v {
+        case 0.10...: return .sharp
+        case 0.06..<0.10: return .normal
+        default: return .wide
         }
     }
 }
@@ -166,6 +189,13 @@ struct HouseRulesView: View {
                     icon: "bolt.fill",
                     selection: BoostPreset.from(rules.boostSpeed),
                     onSelect: { rules.boostSpeed = $0.value }
+                )
+
+                PickerRow(
+                    label: "Turn Radius",
+                    icon: "arrow.triangle.turn.up.right.circle",
+                    selection: TurnPreset.from(rules.turnSpeed),
+                    onSelect: { rules.turnSpeed = $0.value }
                 )
 
                 PickerRow(

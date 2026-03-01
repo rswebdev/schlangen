@@ -95,6 +95,7 @@ struct DashboardView: View {
                             RuleChip(icon: "hare", label: SpeedPreset.from(rules.baseSpeed).rawValue)
                             RuleChip(icon: "bolt.fill", label: BoostPreset.from(rules.boostSpeed).rawValue)
                             RuleChip(icon: "circle.circle.fill", label: FoodPreset.from(rules.foodCount).rawValue)
+                            RuleChip(icon: "arrow.triangle.turn.up.right.circle", label: TurnPreset.from(rules.turnSpeed).rawValue)
                             RuleChip(icon: "cpu", label: AICountPreset.from(rules.aiCount).rawValue)
                         }
                     }
