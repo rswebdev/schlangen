@@ -400,6 +400,59 @@ def main():
     icon180.save(os.path.join(favicon_dir, "apple-touch-icon.png"))
     print("  -> engine/apple-touch-icon.png (180x180)")
 
+    # --- iOS app icons (1024x1024) ---
+    ios_appicon_dir = os.path.join(assets_dir, "Brand Assets.appiconset")
+    ios_appicon = draw_icon(1024)
+    ios_appicon.save(os.path.join(ios_appicon_dir, "app-icon.png"))
+    print("  -> iOS App Icon/app-icon.png (1024x1024)")
+
+    # --- iOS launch images ---
+    launch_sizes = [
+        (320, 480, "iPhone 3.5 Portrait"),
+        (640, 960, "iPhone 3.5 Landscape"),
+        (640, 1136, "iPhone 4 Portrait"),
+        (640, 1136, "Retina 4 Portrait"),
+        (750, 1334, "iPhone 4.7 Portrait"),
+        (768, 1004, "iPad Portrait"),
+        (768, 1024, "iPad Portrait"),
+        (828, 1792, "iPhone Xr Portrait"),
+        (1024, 748, "iPad Landscape"),
+        (1024, 768, "iPad Landscape"),
+        (1125, 2436, "iPhone X Portrait"),
+        (1242, 2208, "iPhone 5.5 Portrait"),
+        (1242, 2688, "iPhone Xs Max Portrait"),
+        (1536, 2008, "iPad Pro 9.7 Portrait"),
+        (1536, 2048, "iPad Pro 9.7 Portrait"),
+        (1668, 2224, "iPad Pro 10.5 Portrait"),
+        (1668, 2388, "iPad Pro 11 Portrait"),
+        (1792, 828, "iPhone Xr Landscape"),
+        (2048, 1496, "iPad Pro 12 Landscape"),
+        (2048, 1536, "iPad Pro 9.7 Landscape"),
+        (2048, 2732, "iPad Pro 12 Portrait"),
+        (2208, 1242, "iPhone 5.5 Landscape"),
+        (2224, 1668, "iPad Pro 10.5 Landscape"),
+        (2388, 1668, "iPad Pro 11 Landscape"),
+        (2436, 1125, "iPhone X Landscape"),
+        (2688, 1242, "iPhone Xs Max Landscape"),
+        (2732, 2048, "iPad Pro 12 Landscape"),
+    ]
+    
+    ios_launch_dir = os.path.join(assets_dir, "Brand Assets.launchimage")
+    for w, h, label in launch_sizes:
+        fname = f"launch_{w}x{h}.png"
+        img = draw_icon_rect(w, h)
+        # Flatten onto opaque BG for launch images
+        flat = Image.new("RGB", img.size, BG)
+        flat.paste(img, mask=img.split()[3])
+        flat.save(os.path.join(ios_launch_dir, fname))
+        print(f"  -> iOS Launch/{label}/{fname}")
+
+    # --- iOS app icon for web ---
+    ios_launch_dir = os.path.join(brand_dir, "LaunchImage.launchimage")
+    icon1024 = draw_icon_rect(1242, 2688)  # for tvOS app icon (must be square with opaque BG)
+    icon1024.save(os.path.join(favicon_dir, "launch-icon.png"))
+    print("  -> engine/launch-icon.png (1242x2688)")
+
     svg = generate_favicon_svg()
     with open(os.path.join(favicon_dir, "favicon.svg"), "w") as f:
         f.write(svg)
