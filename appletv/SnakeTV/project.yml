@@ -17,6 +17,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.schlangen.tv
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1
+        DEVELOPMENT_TEAM: WZ5TKZ8E7A
+        INFOPLIST_KEY_CFBundleDisplayName: "Schlangen.TV Server for tvOS"
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.arcade-games"
         INFOPLIST_FILE: Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: "Brand Assets"
         FRAMEWORK_SEARCH_PATHS:

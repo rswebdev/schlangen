@@ -53,7 +53,6 @@ struct StartView: View {
                 .padding(.vertical, 16)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.red)
 
             Text("Players connect via phone browser on the same WiFi")
                 .font(.caption)
@@ -87,23 +86,21 @@ struct DashboardView: View {
                     .foregroundColor(.blue)
 
                 if let rules = server.activeRules {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("HOUSE RULES")
+                    VStack() {
+                        Text("Rules")
                             .font(.caption2)
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
                             .tracking(1)
-                        HStack(spacing: 16) {
+                        VStack() {
                             RuleChip(icon: "map", label: WorldSizePreset.from(rules.worldSize).rawValue)
                             RuleChip(icon: "hare", label: SpeedPreset.from(rules.baseSpeed).rawValue)
                             RuleChip(icon: "bolt.fill", label: BoostPreset.from(rules.boostSpeed).rawValue)
-                        }
-                        HStack(spacing: 16) {
                             RuleChip(icon: "circle.circle.fill", label: FoodPreset.from(rules.foodCount).rawValue)
                             RuleChip(icon: "cpu", label: AICountPreset.from(rules.aiCount).rawValue)
                         }
                     }
-                    .padding(.top, 8)
+                    .padding(0)
                 }
 
                 Spacer()
@@ -116,7 +113,6 @@ struct DashboardView: View {
                     .font(.callout)
                 }
                 .buttonStyle(.bordered)
-                .tint(.red)
             }
             .frame(width: 360)
             .padding()
@@ -162,8 +158,7 @@ struct DashboardView: View {
                 ], spacing: 12) {
                     StatCard(
                         label: "Memory",
-                        value: String(format: "%.1f", server.stats.memAllocMB),
-                        subtitle: String(format: "/ %.0f MB", server.stats.memSysMB),
+                        value: String(format: "%.1f / %.0f MB", server.stats.memAllocMB, server.stats.memSysMB),
                         color: .cyan
                     )
                     StatCard(
@@ -173,8 +168,8 @@ struct DashboardView: View {
                     )
                     StatCard(
                         label: "GC Pause",
-                        value: String(format: "%.2f", server.stats.gcPauseMs),
-                        subtitle: "ms",
+                        value: String(format: "%.2f ms", server.stats.gcPauseMs),
+
                         color: .teal
                     )
                     StatCard(
@@ -211,10 +206,8 @@ struct DashboardView: View {
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(isPresented: $showSpectator) {
-            SpectatorWebView(
-                url: URL(string: "http://localhost:\(server.port)/?spectate=\(spectatingName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? spectatingName)")!
-            )
-            .ignoresSafeArea()
+            SpectatorView(port: server.port, spectateName: spectatingName)
+                .ignoresSafeArea()
         }
     }
 }
@@ -234,7 +227,7 @@ struct StatCard: View {
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
             Text(value)
-                .font(.system(size: 36, weight: .bold, design: .rounded))
+                .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundColor(color)
             if let subtitle = subtitle {
                 Text(subtitle)
@@ -282,7 +275,7 @@ struct LeaderboardRow: View {
                 .font(.callout)
                 .fontWeight(.bold)
                 .foregroundColor(.secondary)
-                .frame(width: 30)
+                .frame(width: 40)
 
             Text(entry.name)
                 .font(.callout)
@@ -300,10 +293,39 @@ struct LeaderboardRow: View {
                 .padding(.vertical, 3)
                 .background(entry.isAI ? Color.purple.opacity(0.3) : Color.blue.opacity(0.3))
                 .cornerRadius(4)
+                .frame(minWidth: 100)
+
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(rank <= 3 ? Color.yellow.opacity(0.05) : Color.clear)
         .cornerRadius(8)
     }
+}
+
+#Preview {
+    ContentView()
+        .environmentObject({
+            let s = ServerManager()
+            s.isRunning = true
+            s.stats.currentPlayers = 100
+            s.stats.peakPlayers = 150
+            s.stats.aiCount = 20
+            s.stats.gcPauseMs = 0.03
+            s.stats.avgTickMs = 0.3
+            s.stats.totalKills = 1000000
+            s.stats.memSysMB = 120
+            s.stats.memAllocMB = 100
+            s.stats.uptime = "1h 23m 4s"
+            s.stats.version = "1.0.0"
+            s.activeRules = HouseRules()
+            s.connectURL = "http://192.168.1.42:8080"
+
+            s.stats.leaderboard = (0..<10).map { index in
+                let rank = index + 1
+                return LeaderboardEntry(name: "Player \(rank)", score: 1000 - rank * 80, isAI: rank.isMultiple(of: 2))
+            }
+            
+            return s
+        }())
 }
